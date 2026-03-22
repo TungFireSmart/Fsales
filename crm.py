@@ -1,0 +1,1322 @@
+from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QTableWidgetItem, QMessageBox, QFileDialog, QTableWidget, QWidget, QVBoxLayout
+from PyQt6.QtCore import QDate, Qt
+
+import re
+import sys
+from pathlib import Path
+from datetime import datetime
+from docx import Document
+
+import misc
+import quotation
+from UI.ds_cong_ty import Ui_ViewAllCompany
+from UI.chi_tiet_cong_ty import Ui_ViewDetailCompany
+
+
+class Crm(QMainWindow):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Không dựng UI tại __init__ để tránh lỗi self.win_companyview chưa tồn tại.
+        # Màn CRM được mở qua company_view().
+        self.uic8 = None
+        self.win_companyview = None
+        self.setWindowTitle(QApplication.translate("CompanyView", "Fsale v1.1.28"))
+
+    def company_view(self):
+        self.win_companyview = QMainWindow()
+        self.uic8 = Ui_ViewAllCompany()
+        self.uic8.setupUi(self.win_companyview)
+        self.win_companyview.show()
+
+        self.uic8.tabWidget.setTabText(self.uic8.tabWidget.indexOf(self.uic8.tab), "Công ty")
+        self.uic8.tabWidget.setTabText(self.uic8.tabWidget.indexOf(self.uic8.tab_2), "Cá nhân")
+
+        self.uic8.tabWidget.currentChanged.connect(lambda: Crm.on_tab_changed(self, self.uic8.tabWidget.currentIndex()))
+
+        self.uic8.tableWidget.clear()
+        self.uic8.tableWidget.verticalHeader().setVisible(False)
+
+        # Tối ưu hiệu năng: chỉ load danh sách gần nhất, tránh kéo toàn bộ bảng
+        code = "SELECT * FROM ds_cong_ty ORDER BY ma_kh DESC LIMIT 500"
+        result = misc.sql_all(code, None)
+
+        if result:
+            self.uic8.tableWidget.setColumnCount(5)
+            self.uic8.tableWidget.setRowCount(len(result))
+            self.uic8.tableWidget.setHorizontalHeaderLabels(['Mã KH', 'Mã số thuế', 'Tên công ty', 'Địa chỉ', 'Thao tác'])
+            self.uic8.tableWidget.setColumnWidth(0, 40)
+            self.uic8.tableWidget.setColumnWidth(1, 80)
+            self.uic8.tableWidget.setColumnWidth(2, 200)
+            self.uic8.tableWidget.setColumnWidth(3, 220)
+            self.uic8.tableWidget.setColumnWidth(4, 50)
+            for row in range(len(result)):
+                self.uic8.tableWidget.setItem(row, 0, QTableWidgetItem(str(result[row][0])))
+                self.uic8.tableWidget.setItem(row, 1, QTableWidgetItem(result[row][2]))
+                self.uic8.tableWidget.setItem(row, 2, QTableWidgetItem(result[row][1]))
+                self.uic8.tableWidget.setItem(row, 3, QTableWidgetItem(result[row][4]))
+
+                but1 = QPushButton('Xem')
+                but1.clicked.connect(lambda _, r=row: Crm.view_detail_company(self, result[r][2]))
+                self.uic8.tableWidget.setCellWidget(row, 4, but1)
+
+                self.uic8.tableWidget.setRowHeight(row, 70)
+        else:
+            print('Lỗi không hiển thị được')
+            self.uic8.tableWidget.clear()
+
+        # Tránh connect trùng khi mở lại màn hình CRM nhiều lần
+        try:
+            self.uic8.textEdit.textChanged.disconnect()
+        except Exception:
+            pass
+        try:
+            self.uic8.but_search.clicked.disconnect()
+        except Exception:
+            pass
+        try:
+            self.uic8.but_add_company.clicked.disconnect()
+        except Exception:
+            pass
+
+        self.uic8.textEdit.textChanged.connect(lambda: Crm.search_company(self))
+        self.uic8.but_search.clicked.connect(lambda: Crm.search_company(self))
+        self.uic8.but_add_company.clicked.connect(lambda: Crm.add_company(self))
+
+    @staticmethod
+    def normalize_phone(phone_text):
+        digits = re.sub(r"\D+", "", (phone_text or ""))
+        if digits.startswith("84") and len(digits) in (11, 12):
+            digits = "0" + digits[2:]
+        if len(digits) == 9 and not digits.startswith("0"):
+            digits = "0" + digits
+        return digits
+
+    @staticmethod
+    def normalize_mst(mst_text):
+        txt = (mst_text or "").strip().replace(" ", "")
+        txt = txt.replace("–", "-").replace("—", "-")
+        return txt
+
+    def _history_data(self, mst='', phone=''):
+        mst = Crm.normalize_mst(mst)
+        phone = Crm.normalize_phone(phone)
+
+        # 1) Thu thập lead liên quan theo MST/SĐT
+        leads = []
+        if mst:
+            leads = misc.sql_all(
+                "SELECT lead_id, phu_trach, sdt FROM sale_lead WHERE mst = %s AND (check_delete IS NULL OR check_delete != '1')",
+                (mst,)
+            )
+        if not leads and phone:
+            leads = misc.sql_all(
+                "SELECT lead_id, phu_trach, sdt FROM sale_lead WHERE sdt = %s AND (check_delete IS NULL OR check_delete != '1')",
+                (phone,)
+            )
+
+        lead_ids = sorted({int(r[0]) for r in leads if r and r[0] is not None})
+
+        # 2) Thu thập phone liên quan từ ds_ca_nhan / ds_cong_ty để bắt đủ lịch sử (kể cả record cũ)
+        phones = set()
+        if phone:
+            phones.add(phone)
+
+        if mst:
+            cn_rows = misc.sql_all("SELECT dien_thoai FROM ds_ca_nhan WHERE mst_cong_ty = %s", (mst,)) or []
+            for rr in cn_rows:
+                p = Crm.normalize_phone(rr[0] if rr and len(rr) > 0 else '')
+                if p:
+                    phones.add(p)
+
+            cty = misc.sql_one("SELECT dien_thoai_cong_ty, sdt_nguoi_lh FROM ds_cong_ty WHERE mst = %s", (mst,))
+            if cty:
+                for p_raw in cty:
+                    p = Crm.normalize_phone(p_raw or '')
+                    if p:
+                        phones.add(p)
+
+        for rr in leads:
+            if len(rr) > 2 and rr[2]:
+                p = Crm.normalize_phone(rr[2])
+                if p:
+                    phones.add(p)
+
+        # 3) Lấy báo giá theo lead_id OR theo phone
+        quote_rows = []
+        if lead_ids:
+            id_csv = ','.join(str(i) for i in lead_ids)
+            quote_rows.extend(misc.sql_all(f"SELECT * FROM ds_bao_gia WHERE lead_id IN ({id_csv})", None) or [])
+
+        for p in phones:
+            quote_rows.extend(misc.sql_all("SELECT * FROM ds_bao_gia WHERE dien_thoai = %s", (p,)) or [])
+
+        # dedupe báo giá theo so_bg
+        quote_map = {}
+        for r in quote_rows:
+            if r and r[0] is not None:
+                quote_map[int(r[0])] = r
+        quote_rows = [quote_map[k] for k in sorted(quote_map.keys(), reverse=True)]
+
+        quote_ids = sorted({int(r[0]) for r in quote_rows if r and r[0] is not None})
+
+        # 4) Lấy đơn hàng theo so_bg báo giá
+        order_rows = []
+        if quote_ids:
+            q_csv = ','.join(str(i) for i in quote_ids)
+            order_rows = misc.sql_all(f"SELECT * FROM ds_don_hang WHERE so_bg IN ({q_csv}) ORDER BY so_bg DESC", None) or []
+
+        # 5) Xác định đơn đã xuất kho
+        delivered_so_bg = set()
+        if quote_ids:
+            q_csv = ','.join(str(i) for i in quote_ids)
+            xk = misc.sql_all(f"SELECT so_bg FROM xuat_kho WHERE so_bg IN ({q_csv}) AND kt_duyet = 'T'", None) or []
+            delivered_so_bg = {int(r[0]) for r in xk if r and r[0] is not None}
+
+        # fallback: nếu chưa có bản ghi xuat_kho thì dùng cờ đơn hàng đã hoàn thành/đã giao
+        if not delivered_so_bg:
+            for r in order_rows:
+                try:
+                    so = int(r[0])
+                    da_giao = str(r[12]).upper() if len(r) > 12 and r[12] is not None else 'F'
+                    da_ht = str(r[13]).upper() if len(r) > 13 and r[13] is not None else 'F'
+                    if da_giao in ('T', '1') or da_ht in ('T', '1'):
+                        delivered_so_bg.add(so)
+                except Exception:
+                    pass
+
+        order_so_bg = {int(r[0]) for r in order_rows if r and r[0] is not None}
+        open_quotes = [r for r in quote_rows if int(r[0]) not in order_so_bg]
+        done_quotes = [r for r in quote_rows if (int(r[0]) in order_so_bg) or (str(r[4]).upper() in ('T', '1'))]
+        delivered_orders = [r for r in order_rows if int(r[0]) in delivered_so_bg]
+
+        # owner gần nhất: ưu tiên lead.phu_trach, fallback quote.user
+        latest_owner = ''
+        owners = [r[1] for r in leads if len(r) > 1 and r[1]]
+        if owners:
+            latest_owner = owners[-1]
+        elif quote_rows:
+            users = [r[5] for r in quote_rows if len(r) > 5 and r[5]]
+            latest_owner = users[0] if users else ''
+
+        total_quotes = len(quote_rows)
+        total_orders_delivered = len(delivered_orders)
+        close_rate = round((total_orders_delivered / total_quotes) * 100, 2) if total_quotes else 0
+
+        return {
+            'latest_owner': latest_owner,
+            'quotes': quote_rows,
+            'open_quotes': open_quotes,
+            'done_quotes': done_quotes,
+            'orders': order_rows,
+            'delivered_orders': delivered_orders,
+            'total_quotes': total_quotes,
+            'total_orders_delivered': total_orders_delivered,
+            'close_rate': close_rate,
+        }
+
+    def _show_quote_popup(self, so_bg):
+        kq = misc.sql_one("SELECT so_bg, ngaythang, tieu_de, user, sotien, dat_hang, thanh_toan FROM ds_bao_gia WHERE so_bg = %s", (so_bg,))
+        if not kq:
+            QMessageBox.information(None, "Báo giá", f"Không tìm thấy báo giá #{so_bg}")
+            return
+        txt = (
+            f"Số BG: {kq[0]}\n"
+            f"Ngày: {kq[1]}\n"
+            f"Tiêu đề: {kq[2]}\n"
+            f"Người làm BG: {kq[3]}\n"
+            f"Tổng tiền: {kq[4]:,} VNĐ\n"
+            f"Đặt hàng: {kq[5]} | Thanh toán: {kq[6]}"
+        )
+        QMessageBox.information(None, f"Báo giá #{so_bg}", txt)
+
+    def _show_order_popup(self, so_bg):
+        kq = misc.sql_one("SELECT so_bg, lead_id, tien_hang, vat, da_thanh_toan, da_giao_hang, da_hoan_thanh, nguoi_tu_van, nguoi_cai_dat FROM ds_don_hang WHERE so_bg = %s", (so_bg,))
+        if not kq:
+            QMessageBox.information(None, "Đơn hàng", f"Không tìm thấy đơn hàng theo BG #{so_bg}")
+            return
+        txt = (
+            f"Số BG: {kq[0]}\n"
+            f"Lead ID: {kq[1]}\n"
+            f"Tiền hàng: {kq[2]:,} VNĐ | VAT: {kq[3]:,} VNĐ\n"
+            f"Đã thanh toán: {kq[4]} | Đã giao hàng: {kq[5]} | Hoàn thành: {kq[6]}\n"
+            f"Tư vấn: {kq[7]} | Cài đặt: {kq[8]}"
+        )
+        QMessageBox.information(None, f"Đơn hàng BG #{so_bg}", txt)
+
+    def _render_history_tab(self, uic, mst='', phone=''):
+        data = Crm._history_data(self, mst=mst, phone=phone)
+
+        summary = (
+            f"Tóm tắt: {data['total_quotes']} báo giá | "
+            f"{data['total_orders_delivered']} đơn đã xuất kho | "
+            f"Tỷ lệ chốt: {data['close_rate']}% | "
+            f"Phụ trách gần nhất: {data['latest_owner'] or 'Chưa rõ'}"
+        )
+        uic.label_noti.setText(summary)
+
+        rows = []
+        # 1) Báo giá chưa chốt
+        for r in data['open_quotes']:
+            rows.append(['Báo giá chưa chốt', str(r[0]), str(r[2]), (r[6] or '')[:80], str(r[3] or ''), 'quote'])
+
+        # 2) Đơn hàng đã thực hiện (đã xuất kho)
+        for r in data['delivered_orders']:
+            rows.append(['Đơn đã xuất kho', str(r[0]), '', f"Tiền hàng: {r[2]:,}", str(r[16] or ''), 'order'])
+
+        # 3) Báo giá đã thực hiện
+        for r in data['done_quotes']:
+            rows.append(['Báo giá đã thực hiện', str(r[0]), str(r[2]), (r[6] or '')[:80], str(r[3] or ''), 'quote'])
+
+        uic.tableWidget.clear()
+        uic.tableWidget.setColumnCount(6)
+        uic.tableWidget.setRowCount(len(rows))
+        uic.tableWidget.setHorizontalHeaderLabels(['Loại', 'Mã', 'Ngày', 'Nội dung', 'Người phụ trách', 'Thao tác'])
+        uic.tableWidget.setColumnWidth(0, 140)
+        uic.tableWidget.setColumnWidth(1, 70)
+        uic.tableWidget.setColumnWidth(2, 90)
+        uic.tableWidget.setColumnWidth(3, 220)
+        uic.tableWidget.setColumnWidth(4, 120)
+        uic.tableWidget.setColumnWidth(5, 80)
+
+        for i, rr in enumerate(rows):
+            uic.tableWidget.setItem(i, 0, QTableWidgetItem(rr[0]))
+            uic.tableWidget.setItem(i, 1, QTableWidgetItem(rr[1]))
+            uic.tableWidget.setItem(i, 2, QTableWidgetItem(rr[2]))
+            uic.tableWidget.setItem(i, 3, QTableWidgetItem(rr[3]))
+            uic.tableWidget.setItem(i, 4, QTableWidgetItem(rr[4]))
+
+            but = QPushButton('Xem')
+            if rr[5] == 'order':
+                but.clicked.connect(lambda _, so_bg=rr[1]: Crm._show_order_popup(self, int(so_bg)))
+            else:
+                but.clicked.connect(lambda _, so_bg=rr[1]: Crm._show_quote_popup(self, int(so_bg)))
+            uic.tableWidget.setCellWidget(i, 5, but)
+            uic.tableWidget.setRowHeight(i, 58)
+
+        uic.tableWidget.repaint()
+
+    def on_tab_changed(self, index):
+        self.uic8.tableWidget_2.clear()
+
+        if index == self.uic8.tabWidget.indexOf(self.uic8.tab_2):
+            # self.uic8.tableWidget_2.verticalHeader().setVisible(False)
+            self.uic8.label.setText('DANH SÁCH ĐỐI TÁC CÁ NHÂN')
+
+            # Tối ưu hiệu năng: chỉ load dữ liệu gần nhất khi mở tab Cá nhân
+            result = misc.sql_all("SELECT * FROM ds_ca_nhan ORDER BY dien_thoai DESC LIMIT 500", None)
+
+            if result:
+                self.uic8.tableWidget_2.setColumnCount(5)
+                self.uic8.tableWidget_2.setRowCount(len(result))
+                self.uic8.tableWidget_2.setHorizontalHeaderLabels(
+                    ['Tên khách hàng', 'Điện thoại', 'Số lead', 'Công ty', 'Thao tác'])
+                self.uic8.tableWidget_2.setColumnWidth(0, 130)
+                self.uic8.tableWidget_2.setColumnWidth(1, 90)
+                self.uic8.tableWidget_2.setColumnWidth(2, 60)
+                self.uic8.tableWidget_2.setColumnWidth(3, 210)
+                self.uic8.tableWidget_2.setColumnWidth(4, 70)
+
+                for row in range(len(result)):
+                    self.uic8.tableWidget_2.setItem(row, 0, QTableWidgetItem(str(result[row][0])))
+                    self.uic8.tableWidget_2.setItem(row, 1, QTableWidgetItem(str(result[row][1])))
+                    if result[row][2] is not None:
+                        so_lead = str(len(result[row][2].split('|')))
+                    else:
+                        so_lead = '0'
+                    item = QTableWidgetItem(so_lead)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    self.uic8.tableWidget_2.setItem(row, 2, item)
+
+                    if result[row][6] is not None:
+                        ten_cty = result[row][6]
+                    else:
+                        ten_cty = ' '
+
+                    if result[row][7] is not None:
+                        mst = 'MST: ' + result[row][7]
+                    else:
+                        mst = ' '
+                    txt = ten_cty + '\n' + mst
+
+                    self.uic8.tableWidget_2.setItem(row, 3, QTableWidgetItem(txt))
+
+                    self.uic8.tableWidget_2.resizeRowToContents(row)
+
+                    but1 = QPushButton('Xem')
+                    but1.clicked.connect(lambda _, r=row: Crm.view_detail_canhan(self, r))
+
+                    self.uic8.tableWidget_2.setCellWidget(row, 4, but1)
+
+                    self.uic8.tableWidget_2.setRowHeight(row, 70)
+
+                self.uic8.tableWidget_2.repaint()
+            else:
+                print('Lỗi không hiển thị được')
+                self.uic8.tableWidget_2.clear()
+                pass
+
+            # Không connect lại signal ở đây để tránh click 1 lần chạy nhiều lần
+            if self.uic8.textEdit.toPlainText() != '':
+                Crm.search_company(self)
+
+        else:
+            self.uic8.label.setText('DANH SÁCH CÔNG TY ĐỐI TÁC')
+            self.uic8.tableWidget.verticalHeader().setVisible(False)
+
+            code = "SELECT * FROM ds_cong_ty LIMIT 100"
+            result = misc.sql_all(code, None)
+
+            if result:
+                self.uic8.tableWidget.setColumnCount(5)
+                self.uic8.tableWidget.setRowCount(len(result))
+                self.uic8.tableWidget.setHorizontalHeaderLabels(
+                    ['Mã KH', 'Mã số thuế', 'Tên công ty', 'Địa chỉ', 'Thao tác'])
+                self.uic8.tableWidget.setColumnWidth(0, 40)
+                self.uic8.tableWidget.setColumnWidth(1, 80)
+                self.uic8.tableWidget.setColumnWidth(2, 200)
+                self.uic8.tableWidget.setColumnWidth(3, 220)
+                self.uic8.tableWidget.setColumnWidth(4, 50)
+
+                for row in range(len(result)):
+                    self.uic8.tableWidget.setItem(row, 0, QTableWidgetItem(str(result[row][0])))
+                    self.uic8.tableWidget.setItem(row, 1, QTableWidgetItem(result[row][2]))
+                    self.uic8.tableWidget.setItem(row, 2, QTableWidgetItem(result[row][1]))
+                    self.uic8.tableWidget.setItem(row, 3, QTableWidgetItem(result[row][4]))
+
+                    but1 = QPushButton('Xem')
+                    but1.clicked.connect(lambda _, r=row: Crm.view_detail_company(self, result[r][2]))
+                    self.uic8.tableWidget.setCellWidget(row, 4, but1)
+
+                    self.uic8.tableWidget.setRowHeight(row, 70)
+
+                self.uic8.tableWidget.repaint()
+            else:
+                print('Lỗi không hiển thị được')
+                self.uic8.tableWidget.clear()
+                pass
+
+            if self.uic8.textEdit.toPlainText() != '':
+                Crm.search_company(self)
+
+    def _open_new_lead_screen(self):
+        """Mở màn hình tạo lead mới từ màn CRM chi tiết công ty/cá nhân."""
+        try:
+            if hasattr(self, 'lead_handler') and self.lead_handler:
+                # Đồng bộ user nếu có trên main window
+                if hasattr(self, 'user'):
+                    self.lead_handler.user = self.user
+                if hasattr(self, 'user_phone'):
+                    self.lead_handler.user_phone = self.user_phone
+                self.lead_handler.create_new_lead()
+                return
+
+            # Fallback: khởi tạo tạm LeadHandle nếu chưa có trên context hiện tại
+            from lead_handle import LeadHandle
+            self.lead_handler = LeadHandle(self)
+            if hasattr(self, 'user'):
+                self.lead_handler.user = self.user
+            if hasattr(self, 'user_phone'):
+                self.lead_handler.user_phone = self.user_phone
+            self.lead_handler.create_new_lead()
+        except Exception as e:
+            QMessageBox.warning(None, "Lỗi", f"Không mở được màn hình tạo lead mới: {e}")
+
+    def _open_quote_review_for_contract(self):
+        """Mở danh sách báo giá cũ để user chọn xem lại theo luồng tạo hợp đồng."""
+        try:
+            mst = getattr(self, '_current_mst', '') or ''
+            phone = getattr(self, '_current_phone', '') or ''
+
+            data = Crm._history_data(self, mst=mst, phone=phone)
+            quotes = data.get('quotes', []) or []
+
+            if not quotes:
+                QMessageBox.information(None, "Báo giá", "Không tìm thấy báo giá cũ cho khách hàng này.")
+                return
+
+            self.win_quote_picker = QMainWindow()
+            self.win_quote_picker.setWindowTitle("Chọn báo giá để xem lại")
+            container = QWidget(self.win_quote_picker)
+            layout = QVBoxLayout(container)
+            table = QTableWidget(container)
+            table.setColumnCount(6)
+            table.setRowCount(len(quotes))
+            table.setHorizontalHeaderLabels(['Số BG', 'Ngày', 'Tiêu đề', 'Giá trị', 'Sale', 'Thao tác'])
+            table.setColumnWidth(0, 70)
+            table.setColumnWidth(1, 90)
+            table.setColumnWidth(2, 260)
+            table.setColumnWidth(3, 120)
+            table.setColumnWidth(4, 110)
+            table.setColumnWidth(5, 100)
+            table.verticalHeader().setVisible(False)
+
+            for i, q in enumerate(quotes):
+                so_bg = int(q[0])
+                ngay = str(q[2] or '')
+                tieu_de = str(q[6] or '')
+                gia_tri = int(q[11] or 0) if len(q) > 11 and q[11] is not None else 0
+                user_bg = str(q[5] or '') if len(q) > 5 else ''
+
+                table.setItem(i, 0, QTableWidgetItem(str(so_bg)))
+                table.setItem(i, 1, QTableWidgetItem(ngay))
+                table.setItem(i, 2, QTableWidgetItem(tieu_de[:120]))
+                table.setItem(i, 3, QTableWidgetItem("{:,.0f}".format(gia_tri)))
+                table.setItem(i, 4, QTableWidgetItem(user_bg))
+
+                btn = QPushButton('Xem lại')
+                btn.clicked.connect(lambda _, sb=so_bg: Crm._open_quote_by_so_bg(self, sb))
+                table.setCellWidget(i, 5, btn)
+                table.setRowHeight(i, 58)
+
+            layout.addWidget(table)
+            self.win_quote_picker.setCentralWidget(container)
+            self.win_quote_picker.resize(860, 520)
+            self.win_quote_picker.show()
+
+        except Exception as e:
+            QMessageBox.warning(None, "Lỗi", f"Không mở được danh sách báo giá: {e}")
+
+    def _open_quote_by_so_bg(self, so_bg):
+        """Mở màn hình xem lại báo giá theo số BG, từ đó đi tiếp luồng tạo hợp đồng."""
+        try:
+            row = misc.sql_one("SELECT * FROM ds_bao_gia WHERE so_bg = %s", (so_bg,))
+            if not row:
+                QMessageBox.information(None, "Báo giá", f"Không tìm thấy báo giá #{so_bg}")
+                return
+
+            lead_id = row[1]
+            if not lead_id:
+                QMessageBox.warning(None, "Lỗi", f"Báo giá #{so_bg} chưa gắn lead_id.")
+                return
+
+            data = None
+            if row[3]:
+                goods = str(row[3]).split('@')
+                data = [item.split('|') for item in goods if item]
+
+            self.win_quotato = quotation.Quotato()
+            if hasattr(self, 'user'):
+                self.win_quotato.user = self.user
+            if hasattr(self, 'user_phone'):
+                self.win_quotato.user_phone = self.user_phone
+
+            # Tạo cửa sổ báo giá và đổ nội dung trực tiếp
+            self.win_quotato.sub_win1 = QMainWindow()
+            self.win_quotato.uic5 = quotation.Ui_Win_bao_gia()
+            self.win_quotato.uic5.setupUi(self.win_quotato.sub_win1)
+            self.win_quotato.sub_win1.show()
+            self.win_quotato.show_bg(str(lead_id), str(so_bg), data)
+
+        except Exception as e:
+            QMessageBox.warning(None, "Lỗi", f"Không mở được báo giá #{so_bg}: {e}")
+
+    def view_detail_canhan(self, row_index):
+        item = self.uic8.tableWidget_2.item(row_index, 1)
+
+        # Hiển thị form chi tiết
+        self.win_detailcompanyview = QMainWindow()
+        self.uic10 = Ui_ViewDetailCompany()
+        self.uic10.setupUi(self.win_detailcompanyview)
+        self.win_detailcompanyview.show()
+
+        if not item:
+            self.uic10.label_noti.setText("⚠️ Không có dữ liệu số điện thoại tại dòng này.")
+            return
+
+        dien_thoai = item.text().strip()
+        self._current_phone = dien_thoai
+        self._current_mst = ''
+        if not dien_thoai:
+            self.uic10.label_noti.setText("⚠️ Số điện thoại rỗng.")
+            return
+
+        kq = misc.sql_one("SELECT * FROM ds_ca_nhan WHERE dien_thoai = %s", (dien_thoai,))
+        if kq and len(kq) > 7 and kq[7]:
+            self._current_mst = str(kq[7]).strip()
+        if not kq:
+            self.uic10.label_noti.setText("❌ Không tìm thấy dữ liệu cá nhân trong CSDL.")
+            return
+
+        self.uic10.but_update.clicked.connect(lambda: Crm.update_thong_tin_ca_nhan(self))
+        self.uic10.but_tao_lead.clicked.connect(lambda: Crm._open_new_lead_screen(self))
+        self.uic10.but_tao_hop_dong.clicked.connect(lambda: Crm._open_quote_review_for_contract(self))
+        self.uic10.label_noti.setText(kq[0])
+        self.uic10.but_tao_moi.hide()
+
+        # Lịch sử giao dịch: load khi người dùng mở tab
+        try:
+            self.uic10.tabWidget.currentChanged.disconnect()
+        except Exception:
+            pass
+        mst_canhan = kq[7] if len(kq) > 7 and kq[7] else ''
+        self.uic10.tabWidget.currentChanged.connect(
+            lambda idx, _mst=mst_canhan, _phone=dien_thoai: Crm._render_history_tab(self, self.uic10, mst=_mst, phone=_phone)
+            if idx == self.uic10.tabWidget.indexOf(self.uic10.tab_3) else None
+        )
+
+        self.uic10.txt_nguoi_lien_he.setText(kq[0])
+        self.uic10.txt_sdt_nguoi_lien_he.setText(kq[1])
+
+        if kq[5]:
+            self.uic10.txt_email_nguoi_lien_he.setText(kq[5])
+        else:
+            self.uic10.txt_email_nguoi_lien_he.setPlaceholderText('Email cá nhân đang trống')
+
+        if kq[7]:
+            cong_ty = misc.sql_one("SELECT * FROM ds_cong_ty WHERE mst = %s", (kq[7],))
+            if cong_ty:
+                self.uic10.txt_ten_cong_ty.setText(cong_ty[1])
+                self.uic10.txt_dia_chi.setText(cong_ty[4] if cong_ty[4] else '')
+                self.uic10.txt_mst.setText(cong_ty[2])
+                self.uic10.txt_sdt_cong_ty.setText(cong_ty[7])
+
+        if kq[6]:
+            self.uic10.txt_nguoi_phu_trach.setText(kq[6])
+
+    def show_canhan_lichsugiaodich(self):
+        dien_thoai = self.uic9.txt_sdt_nguoi_lien_he.toPlainText()
+
+        kq = misc.sql_all("SELECT * FROM ds_bao_gia WHERE dien_thoai = %s", (dien_thoai,))
+
+        if kq:
+            self.uic9.tableWidget.setColumnCount(6)
+            self.uic9.tableWidget.setRowCount(len(kq))
+            self.uic9.tableWidget.setHorizontalHeaderLabels(
+                ['Số BG', 'Ngày tháng', 'Tổng tiền', 'Người làm BG', 'Thành công'])
+            self.uic9.tableWidget.setColumnWidth(0, 50)
+            self.uic9.tableWidget.setColumnWidth(1, 80)
+            self.uic9.tableWidget.setColumnWidth(2, 100)
+            self.uic9.tableWidget.setColumnWidth(3, 120)
+            self.uic9.tableWidget.setColumnWidth(4, 120)
+            self.uic9.tableWidget.setColumnWidth(5, 120)
+
+            # Function to convert date string to QDate
+            def date_str_to_qdate(date_str):
+                return QDate.fromString(date_str, "dd/MM/yy")
+
+            # Sort the list based on the converted QDate, newer to older
+            kq.sort(key=lambda x: date_str_to_qdate(x[2]), reverse=True)
+
+            for row in range(len(kq)):
+                self.uic9.tableWidget.setItem(row, 0, QTableWidgetItem(str(kq[row][0])))
+                self.uic9.tableWidget.setItem(row, 1, QTableWidgetItem(str(kq[row][2])))
+
+                if kq[row][11] is not None:
+                    temp = "{:,.0f}".format((kq[row][11]))
+                    self.uic9.tableWidget.setItem(row, 2, QTableWidgetItem(temp))
+
+                if kq[row][5] is not None:
+                    self.uic9.tableWidget.setItem(row, 3, QTableWidgetItem(kq[row][5]))
+
+                if kq[row][4] is not None:
+                    if kq[row][4] == "N":
+                        self.uic9.tableWidget.setItem(row, 4, QTableWidgetItem("Chưa thành công"))
+                    elif kq[row][4] == "T" or kq[row][4] == '1':
+                        self.uic9.tableWidget.setItem(row, 4, QTableWidgetItem("Thành công"))
+
+                but1 = QPushButton('Xem lại')
+                # but1.clicked.connect(lambda: file_upload.download_file(self.uic7.tableWidget.item(self.uic7.tableWidget.currentRow(), 0).text()))
+                self.uic9.tableWidget.setCellWidget(row, 5, but1)
+
+                self.uic9.tableWidget.setRowHeight(row, 65)
+
+                self.uic9.txt_nguoi_phu_trach.setText(kq[0][5])
+
+        else:
+            print('Lỗi không hiển thị được')
+            self.uic9.tableWidget.clear()
+            pass
+
+    def view_detail_company(self, mst, so_bg=None):
+        # Khởi tạo màn hình
+        self.win_detailcompanyview = QMainWindow()
+        self.uic9 = Ui_ViewDetailCompany()
+        self.uic9.setupUi(self.win_detailcompanyview)
+        self.win_detailcompanyview.show()
+
+        # Phân ra 2 trường hợp để lấy MST
+        if isinstance(mst, str):
+            mst = mst.strip()
+        else:
+            row = self.uic8.tableWidget.currentRow()
+            item_mst = self.uic8.tableWidget.item(row, 1) if row >= 0 else None
+            mst = item_mst.text().strip() if item_mst else ''
+
+        if not mst:
+            self.uic9.label_noti.setText("❌ Không xác định được MST công ty.")
+            return
+
+        self._current_mst = mst
+
+        kq = misc.sql_one("SELECT * FROM ds_cong_ty WHERE mst = %s", (mst,))
+        if not kq:
+            self.uic9.label_noti.setText("❌ Không tìm thấy công ty theo MST.")
+            return
+
+        self.uic9.label_noti.setText(kq[1])
+        if so_bg:
+            self.uic9.label_noti.setText('Soạn hợp đồng theo báo giá số ' + str(so_bg))
+            self.uic9.label_so_hd.setText(so_bg)
+
+        self.uic9.label_ma_kh.setText(str(kq[0]))
+        self.uic9.but_tao_moi.hide()
+
+        self.uic9.txt_ten_cong_ty.setText(kq[1])
+        self.uic9.txt_mst.setText(kq[2])
+
+        if kq[4] is None:
+            self.uic9.txt_dia_chi.setPlaceholderText('Chưa ghi địa chỉ công ty')
+        else:
+            self.uic9.txt_dia_chi.setText(kq[4])
+
+        self.uic9.txt_nguoi_lien_he.setText(kq[6])
+
+        self._current_phone = (kq[7] or '').strip() if len(kq) > 7 and kq[7] is not None else ''
+
+        if kq[7] is None:
+            self.uic9.txt_sdt_cong_ty.setPlaceholderText('Chưa ghi số điện thoại công ty')
+        else:
+            self.uic9.txt_sdt_cong_ty.setText(kq[7])
+
+        if kq[8] is None:
+            self.uic9.txt_email.setPlaceholderText('Chưa ghi email công ty')
+        else:
+            self.uic9.txt_email.setText(kq[8])
+
+        self.uic9.txt_nguoi_phu_trach.setText(kq[9])
+
+        if kq[10] is None:
+            self.uic9.txt_nguoi_dai_dien.setPlaceholderText('Chưa có tên người đại diện công ty')
+        else:
+            self.uic9.txt_nguoi_dai_dien.setText(kq[10])
+
+        if kq[11] is None:
+            self.uic9.txt_stk.setPlaceholderText('Chưa có số tài khoản công ty')
+        else:
+            self.uic9.txt_stk.setText(kq[11])
+
+        if kq[12] is None:
+            self.uic9.txt_stk.setPlaceholderText('Tại ngân hàng nào???')
+        else:
+            self.uic9.txt_ten_ngan_hang.setText(kq[12])
+
+        if kq[13] is None:
+            self.uic9.txt_chuc_vu.setPlaceholderText('Cần ghi rõ chức vụ của người đại diện')
+        else:
+            self.uic9.txt_chuc_vu.setText(kq[13])
+
+        if kq[14] is None:
+            self.uic9.txt_sdt_nguoi_dai_dien.setPlaceholderText('Số điện thoại của người đại diện công ty')
+        else:
+            self.uic9.txt_sdt_nguoi_dai_dien.setText(kq[14])
+
+        if kq[15] is None:
+            self.uic9.txt_chuc_vu_nguoi_lien_he.setPlaceholderText('Chức vụ của người liên hệ')
+        else:
+            self.uic9.txt_chuc_vu_nguoi_lien_he.setText(kq[15])
+
+        if kq[16] is None:
+            self.uic9.txt_email_nguoi_dai_dien.setPlaceholderText('Email của người đại diện công ty')
+        else:
+            self.uic9.txt_email_nguoi_dai_dien.setText(kq[16])
+
+        self.uic9.txt_sdt_nguoi_lien_he.setText(kq[17])
+
+        if kq[18] is None:
+            self.uic9.txt_email_nguoi_lien_he.setPlaceholderText('Email của người liên hệ')
+        else:
+            self.uic9.txt_email_nguoi_lien_he.setText(kq[18])
+
+        self.uic9.but_update.clicked.connect(lambda: Crm.update_tt_cong_ty(self))
+        self.uic9.but_tao_lead.clicked.connect(lambda: Crm._open_new_lead_screen(self))
+        self.uic9.but_tao_hop_dong.clicked.connect(lambda: Crm._open_quote_review_for_contract(self))
+
+        # Lịch sử giao dịch: load khi mở tab "Lịch sử giao dịch"
+        try:
+            self.uic9.tabWidget.currentChanged.disconnect()
+        except Exception:
+            pass
+        phone_company = kq[7] if len(kq) > 7 and kq[7] else ''
+        self.uic9.tabWidget.currentChanged.connect(
+            lambda idx, _mst=mst, _phone=phone_company: Crm._render_history_tab(self, self.uic9, mst=_mst, phone=_phone)
+            if idx == self.uic9.tabWidget.indexOf(self.uic9.tab_3) else None
+        )
+
+    def update_tt_cong_ty(self):
+        # B1: Thu thập dữ liệu từ giao diện
+        fields = {
+            "ten_cty": self.uic9.txt_ten_cong_ty.toPlainText().strip(),
+            "dia_chi": self.uic9.txt_dia_chi.toPlainText().strip(),
+            "mst": self.uic9.txt_mst.toPlainText().strip(),
+            "email_cty": self.uic9.txt_email.toPlainText().strip(),
+            "stk": self.uic9.txt_stk.toPlainText().strip(),
+            "ngan_hang": self.uic9.txt_ten_ngan_hang.toPlainText().strip(),
+            "sdt_cty": self.uic9.txt_sdt_cong_ty.toPlainText().strip(),
+            "nguoi_dd": self.uic9.txt_nguoi_dai_dien.toPlainText().strip(),
+            "sdt_ndd": self.uic9.txt_sdt_nguoi_dai_dien.toPlainText().strip(),
+            "chuc_vu": self.uic9.txt_chuc_vu.toPlainText().strip(),
+            "email_ndd": self.uic9.txt_email_nguoi_dai_dien.toPlainText().strip(),
+            "nguoi_lh": self.uic9.txt_nguoi_lien_he.toPlainText().strip(),
+            "sdt_nlh": self.uic9.txt_sdt_nguoi_lien_he.toPlainText().strip(),
+            "chuc_vu_nlh": self.uic9.txt_chuc_vu_nguoi_lien_he.toPlainText().strip(),
+            "email_nlh": self.uic9.txt_email_nguoi_lien_he.toPlainText().strip(),
+        }
+
+        # B1.1: Chuẩn hoá dữ liệu đầu vào (giảm bẩn/trùng)
+        fields["mst"] = Crm.normalize_mst(fields["mst"])
+        fields["sdt_cty"] = Crm.normalize_phone(fields["sdt_cty"])
+        fields["sdt_ndd"] = Crm.normalize_phone(fields["sdt_ndd"])
+        fields["sdt_nlh"] = Crm.normalize_phone(fields["sdt_nlh"])
+
+        # Đồng bộ lại UI sau chuẩn hoá để user nhìn thấy dữ liệu sạch
+        self.uic9.txt_mst.setText(fields["mst"])
+        self.uic9.txt_sdt_cong_ty.setText(fields["sdt_cty"])
+        self.uic9.txt_sdt_nguoi_dai_dien.setText(fields["sdt_ndd"])
+        self.uic9.txt_sdt_nguoi_lien_he.setText(fields["sdt_nlh"])
+
+        # B2: Kiểm tra bắt buộc
+        required_fields = {
+            "Tên công ty": fields["ten_cty"],
+            "Mã số thuế": fields["mst"],
+            "Địa chỉ": fields["dia_chi"],
+            "Người đại diện": fields["nguoi_dd"],
+            "Điện thoại công ty": fields["sdt_cty"],
+        }
+
+        missing_required = [label for label, value in required_fields.items() if not value]
+
+        # Nếu thiếu trường bắt buộc nhưng có người liên hệ → vẫn lưu người liên hệ vào ds_ca_nhan
+        if missing_required:
+            if fields["nguoi_lh"] and re.match(r"^0\d{9}$", fields["sdt_nlh"]):
+                misc.sql_commit(
+                    """
+                    INSERT INTO ds_ca_nhan (ten, dien_thoai, email, ten_cong_ty, mst_cong_ty)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        ten = VALUES(ten),
+                        email = VALUES(email),
+                        ten_cong_ty = VALUES(ten_cong_ty),
+                        mst_cong_ty = VALUES(mst_cong_ty)
+                    """,
+                    (fields["nguoi_lh"], fields["sdt_nlh"], fields["email_nlh"], fields["ten_cty"], fields["mst"])
+                )
+                self.uic9.label_noti.setStyleSheet("color: orange")
+                self.uic9.label_noti.setText("⚠️ Thiếu thông tin công ty. Chỉ lưu người liên hệ.")
+                return
+            else:
+                self.uic9.label_noti.setStyleSheet("color: red")
+                self.uic9.label_noti.setText(f"❌ Thiếu thông tin: {', '.join(missing_required)}")
+                return
+
+        # B3: Kiểm tra định dạng mã số thuế
+        mst = fields["mst"]
+        if not re.match(r"^\d{10}(-\d{3})?$", mst):
+            self.uic9.label_noti.setStyleSheet("color: red")
+            self.uic9.label_noti.setText("❌ Mã số thuế không đúng định dạng! (VD: 1234567890 hoặc 1234567890-001)")
+            return
+
+        # B3.1: Validate định dạng số điện thoại sau chuẩn hoá
+        if not re.match(r"^0\d{9}$", fields["sdt_cty"]):
+            self.uic9.label_noti.setStyleSheet("color: red")
+            self.uic9.label_noti.setText("❌ Số điện thoại công ty phải hợp lệ (10 số, bắt đầu bằng 0).")
+            return
+
+        for label, phone_key in [("SĐT người đại diện", "sdt_ndd"), ("SĐT người liên hệ", "sdt_nlh")]:
+            if fields[phone_key] and not re.match(r"^0\d{9}$", fields[phone_key]):
+                self.uic9.label_noti.setStyleSheet("color: red")
+                self.uic9.label_noti.setText(f"❌ {label} không hợp lệ.")
+                return
+
+        # B4: Gán biến tắt
+        ten_cty = fields["ten_cty"]
+        dia_chi = fields["dia_chi"]
+        email_cty = fields["email_cty"]
+        stk = fields["stk"]
+        ngan_hang = fields["ngan_hang"]
+        sdt_cty = fields["sdt_cty"]
+        nguoi_dd = fields["nguoi_dd"]
+        sdt_ndd = fields["sdt_ndd"]
+        chuc_vu = fields["chuc_vu"]
+        email_ndd = fields["email_ndd"]
+        nguoi_lh = fields["nguoi_lh"]
+        sdt_nlh = fields["sdt_nlh"]
+        chuc_vu_nlh = fields["chuc_vu_nlh"]
+        email_nlh = fields["email_nlh"]
+        ma_kh = self.uic9.label_ma_kh.text()
+
+        try:
+            # B5: Cập nhật hoặc thêm công ty
+            kq = misc.sql_one("SELECT * from ds_cong_ty WHERE mst = %s", (mst,))
+            if kq:
+                code = """UPDATE ds_cong_ty SET ten_cong_ty = %s, dia_chi = %s, mst = %s, email_cong_ty = %s, stk = %s, 
+                          ngan_hang = %s, dien_thoai_cong_ty = %s, nguoi_dai_dien = %s, sdt_nguoi_dd = %s, 
+                          chuc_vu_ndd = %s, email_ndd = %s, nguoi_lien_he = %s, sdt_nguoi_lh = %s, chuc_vu_nlh = %s, 
+                          email_nlh = %s WHERE mst = %s"""
+                params = (
+                    ten_cty, dia_chi, mst, email_cty, stk, ngan_hang, sdt_cty,
+                    nguoi_dd, sdt_ndd, chuc_vu, email_ndd,
+                    nguoi_lh, sdt_nlh, chuc_vu_nlh, email_nlh, mst
+                )
+                misc.sql_commit(code, params)
+                self.uic9.label_noti.setStyleSheet("color: green")
+                self.uic9.label_noti.setText("✅ Đã cập nhật thông tin công ty.")
+            else:
+                code = """INSERT INTO ds_cong_ty 
+                          (ten_cong_ty, mst, dia_chi, email_cong_ty, stk, ngan_hang, dien_thoai_cong_ty, 
+                           nguoi_dai_dien, sdt_nguoi_dd, chuc_vu_ndd, email_ndd, nguoi_lien_he, 
+                           sdt_nguoi_lh, chuc_vu_nlh, email_nlh)
+                          VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                params = (
+                    ten_cty, mst, dia_chi, email_cty, stk, ngan_hang, sdt_cty,
+                    nguoi_dd, sdt_ndd, chuc_vu, email_ndd,
+                    nguoi_lh, sdt_nlh, chuc_vu_nlh, email_nlh
+                )
+                misc.sql_commit(code, params)
+                self.uic9.label_noti.setStyleSheet("color: green")
+                self.uic9.label_noti.setText("✅ Đã thêm công ty mới vào cơ sở dữ liệu.")
+
+            # B6: Upsert cá nhân (người đại diện) - atomic, tránh race duplicate
+            if nguoi_dd.strip() and re.match(r"^0\d{9}$", sdt_ndd):
+                misc.sql_commit(
+                    """
+                    INSERT INTO ds_ca_nhan (ten, dien_thoai, email, ten_cong_ty, mst_cong_ty)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        ten = VALUES(ten),
+                        email = VALUES(email),
+                        ten_cong_ty = VALUES(ten_cong_ty),
+                        mst_cong_ty = VALUES(mst_cong_ty)
+                    """,
+                    (nguoi_dd, sdt_ndd, email_ndd, ten_cty, mst)
+                )
+
+            # B7: Upsert cá nhân (người liên hệ) - atomic, tránh race duplicate
+            if nguoi_lh.strip() and re.match(r"^0\d{9}$", sdt_nlh):
+                misc.sql_commit(
+                    """
+                    INSERT INTO ds_ca_nhan (ten, dien_thoai, email, ten_cong_ty, mst_cong_ty)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        ten = VALUES(ten),
+                        email = VALUES(email),
+                        ten_cong_ty = VALUES(ten_cong_ty),
+                        mst_cong_ty = VALUES(mst_cong_ty)
+                    """,
+                    (nguoi_lh, sdt_nlh, email_nlh, ten_cty, mst)
+                )
+
+        except Exception as e:
+            self.uic9.label_noti.setStyleSheet("color: red")
+            self.uic9.label_noti.setText(f"❌ Lỗi khi cập nhật thông tin: {str(e)}")
+            return
+
+    def update_thong_tin_ca_nhan(self):
+        # B1: Lấy dữ liệu từ giao diện
+        ten = self.uic10.txt_nguoi_lien_he.toPlainText().strip()
+        dien_thoai = Crm.normalize_phone(self.uic10.txt_sdt_nguoi_lien_he.toPlainText().strip())
+        email = self.uic10.txt_email_nguoi_lien_he.toPlainText().strip()
+        ten_cong_ty = self.uic10.txt_ten_cong_ty.toPlainText().strip()
+        mst = Crm.normalize_mst(self.uic10.txt_mst.toPlainText().strip())
+
+        self.uic10.txt_sdt_nguoi_lien_he.setText(dien_thoai)
+        self.uic10.txt_mst.setText(mst)
+
+        # B2: Kiểm tra bắt buộc
+        if not ten or not dien_thoai:
+            self.uic10.label_noti.setStyleSheet("color: red")
+            self.uic10.label_noti.setText("❌ Vui lòng nhập đầy đủ tên và số điện thoại")
+            return
+
+        # B3: Kiểm tra định dạng số điện thoại (10 số VN, bắt đầu bằng 0)
+        if not re.match(r"^0\d{9}$", dien_thoai):
+            self.uic10.label_noti.setStyleSheet("color: red")
+            self.uic10.label_noti.setText("❌ Số điện thoại không hợp lệ (10 số, bắt đầu bằng 0).")
+            return
+
+        if mst and not re.match(r"^\d{10}(-\d{3})?$", mst):
+            self.uic10.label_noti.setStyleSheet("color: red")
+            self.uic10.label_noti.setText("❌ Mã số thuế không đúng định dạng!")
+            return
+
+        # B4: Upsert vào bảng ds_ca_nhan (trùng SĐT thì cập nhật)
+        misc.sql_commit(
+            """
+            INSERT INTO ds_ca_nhan (ten, dien_thoai, email, ten_cong_ty, mst_cong_ty)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                ten = VALUES(ten),
+                email = VALUES(email),
+                ten_cong_ty = VALUES(ten_cong_ty),
+                mst_cong_ty = VALUES(mst_cong_ty)
+            """,
+            (ten, dien_thoai, email, ten_cong_ty, mst)
+        )
+
+        # B5: Hiển thị thông báo
+        self.uic10.label_noti.setStyleSheet("color: green")
+        self.uic10.label_noti.setText("✅ Đã cập nhật thông tin cá nhân.")
+
+    def tao_hop_dong_tu_mau(self):
+        try:
+            so_bg = (self.uic9.label_so_hd.text() or '').strip()
+            ten_cty = self.uic9.txt_ten_cong_ty.toPlainText().strip()
+            mst = self.uic9.txt_mst.toPlainText().strip()
+            dia_chi = self.uic9.txt_dia_chi.toPlainText().strip()
+            nguoi_dd = self.uic9.txt_nguoi_dai_dien.toPlainText().strip()
+            chuc_vu = self.uic9.txt_chuc_vu.toPlainText().strip()
+            sdt = self.uic9.txt_sdt_nguoi_dai_dien.toPlainText().strip() or self.uic9.txt_sdt_cong_ty.toPlainText().strip()
+
+            if not so_bg:
+                self.uic9.label_noti.setStyleSheet('color: red')
+                self.uic9.label_noti.setText('❌ Chưa có số báo giá để tạo hợp đồng.')
+                return
+
+            base_dir = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+
+            template = base_dir / 'mau_hop_dong.docx'
+            if not template.exists():
+                self.uic9.label_noti.setStyleSheet('color: red')
+                self.uic9.label_noti.setText(f'❌ Không tìm thấy template mau_hop_dong.docx tại: {base_dir}')
+                return
+
+            out_dir = base_dir / 'hop_dong_out'
+            out_dir.mkdir(parents=True, exist_ok=True)
+            safe_company = re.sub(r'[^\w\- ]+', '', ten_cty or 'KhachHang').strip().replace(' ', '_')
+            default_name = f'Hop_dong_BG_{so_bg}_{safe_company}.docx'
+            suggested_path = str(out_dir / default_name)
+
+            save_path, _ = QFileDialog.getSaveFileName(
+                self.win_detailcompanyview,
+                'Lưu hợp đồng',
+                suggested_path,
+                'Word Document (*.docx)'
+            )
+            if not save_path:
+                self.uic9.label_noti.setStyleSheet('color: orange')
+                self.uic9.label_noti.setText('Đã hủy lưu hợp đồng.')
+                return
+
+            if not save_path.lower().endswith('.docx'):
+                save_path += '.docx'
+
+            out_path = Path(save_path)
+
+            doc = Document(str(template))
+
+            lead = misc.sql_one(
+                'SELECT name, sdt, company, address, mst, email FROM sale_lead WHERE lead_id = (SELECT lead_id FROM ds_bao_gia WHERE so_bg = %s LIMIT 1)',
+                (so_bg,)
+            )
+            ten_lh = lead[0] if lead else ''
+            sdt_lh = lead[1] if lead else ''
+            lead_company = lead[2] if lead else ''
+            lead_address = lead[3] if lead else ''
+            lead_mst = lead[4] if lead else ''
+            lead_email = lead[5] if lead else ''
+
+            bg = misc.sql_one('SELECT sotien, noi_dung, sum8, sum10, sum0 FROM ds_bao_gia WHERE so_bg = %s', (so_bg,))
+            tong_so = int(bg[0] or 0) if bg else 0
+            noi_dung = (bg[1] or '') if bg else ''
+            sum8 = int(bg[2] or 0) if bg else 0
+            sum10 = int(bg[3] or 0) if bg else 0
+            sum0 = int(bg[4] or 0) if bg else 0
+            tong_so_fmt = "{:,}".format(tong_so)
+
+            so_hd = f"{so_bg}/HĐKT"
+            ngay_ky = datetime.now().strftime('%d/%m/%Y')
+
+            # Tính tổng tiền đúng theo từng dòng báo giá (không suy từ sum8/sum10/sum0)
+            tong_hang = 0
+            tong_vat = 0
+            for line in str(noi_dung).split('@'):
+                cols = line.split('|')
+                if len(cols) < 7:
+                    continue
+                try:
+                    sl = int(str(cols[4]).replace(',', '').strip() or '0')
+                    don_gia = int(str(cols[5]).replace(',', '').strip() or '0')
+                    thue = int(str(cols[6]).replace(',', '').strip() or '0')
+                except Exception:
+                    continue
+                thanh_tien = sl * don_gia
+                tong_hang += thanh_tien
+                if thue == 8:
+                    tong_vat += round(thanh_tien * 0.08)
+                elif thue == 10:
+                    tong_vat += round(thanh_tien * 0.10)
+            tong_cong = tong_hang + tong_vat
+
+            def to_vn_words(n: int) -> str:
+                if n == 0:
+                    return 'Không đồng'
+                dv = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín']
+
+                def read_triple(num, full=False):
+                    tr = num // 100
+                    ch = (num % 100) // 10
+                    dvv = num % 10
+                    parts = []
+                    if full or tr > 0:
+                        parts.append(dv[tr] + ' trăm')
+                    if ch > 1:
+                        parts.append(dv[ch] + ' mươi')
+                        if dvv == 1:
+                            parts.append('mốt')
+                        elif dvv == 5:
+                            parts.append('lăm')
+                        elif dvv > 0:
+                            parts.append(dv[dvv])
+                    elif ch == 1:
+                        parts.append('mười')
+                        if dvv == 5:
+                            parts.append('lăm')
+                        elif dvv > 0:
+                            parts.append(dv[dvv])
+                    elif ch == 0 and dvv > 0:
+                        if tr > 0 or full:
+                            parts.append('lẻ')
+                        parts.append(dv[dvv])
+                    return ' '.join(parts).strip()
+
+                units = ['', ' nghìn', ' triệu', ' tỷ', ' nghìn tỷ', ' triệu tỷ']
+                chunks = []
+                x = int(n)
+                while x > 0:
+                    chunks.append(x % 1000)
+                    x //= 1000
+
+                texts = []
+                for i in range(len(chunks) - 1, -1, -1):
+                    c = chunks[i]
+                    if c == 0:
+                        continue
+                    full = i < len(chunks) - 1 and chunks[i + 1] != 0
+                    part = read_triple(c, full=full)
+                    texts.append(part + units[i])
+
+                sentence = ' '.join(texts).strip()
+                sentence = re.sub(r'\s+', ' ', sentence)
+                return sentence[:1].upper() + sentence[1:] + ' đồng'
+
+            values = {
+                # placeholders trong template hiện tại
+                '{so_hd}': so_hd,
+                '{contract-date}': ngay_ky,
+                '{company_name}': lead_company or ten_cty,
+                '{address}': lead_address or dia_chi,
+                '{email_cty}': lead_email,
+                '{stk}': '',
+                '{bank}': '',
+                '{mst}': lead_mst or mst,
+                '{dai_dien}': nguoi_dd or ten_lh,
+                '{chuc_vu}': chuc_vu,
+                '{tien-bang-so}': '{:,}'.format(tong_cong),
+                '{tien-bang-chu}': to_vn_words(tong_cong),
+                '{tong_tien_hang}': '{:,}'.format(tong_hang),
+                '{tong_vat}': '{:,}'.format(tong_vat),
+                '{tong_cong}': '{:,}'.format(tong_cong),
+
+                # giữ thêm các key cũ/phòng hờ
+                '{SO_BG}': str(so_bg),
+                '{NGAY}': ngay_ky,
+                '{TEN_CONG_TY}': lead_company or ten_cty,
+                '{MST}': lead_mst or mst,
+                '{DIA_CHI}': lead_address or dia_chi,
+                '{NGUOI_DAI_DIEN}': nguoi_dd or ten_lh,
+                '{CHUC_VU}': chuc_vu,
+                '{SDT}': sdt_lh or sdt,
+                '{TEN_LIEN_HE}': ten_lh,
+                '{SDT_LIEN_HE}': sdt_lh,
+            }
+
+            def replace_in_paragraph(p):
+                text = p.text
+                new_text = text
+                for k, v in values.items():
+                    new_text = new_text.replace(k, v or '')
+                if new_text != text:
+                    p.text = new_text
+
+            for p in doc.paragraphs:
+                replace_in_paragraph(p)
+            for t in doc.tables:
+                for row in t.rows:
+                    for cell in row.cells:
+                        for p in cell.paragraphs:
+                            replace_in_paragraph(p)
+
+            # Đổ danh mục hàng hóa vào bảng placeholder {{ITEM_TABLE}}
+            goods = []
+            for line in str(noi_dung).split('@'):
+                cols = line.split('|')
+                if len(cols) < 7:
+                    continue
+                try:
+                    goods.append({
+                        'ten': cols[0],
+                        'model': cols[1],
+                        'dvt': cols[3],
+                        'sl': int(str(cols[4]).replace(',', '').strip() or '0'),
+                        'don_gia': int(str(cols[5]).replace(',', '').strip() or '0'),
+                        'thue': int(str(cols[6]).replace(',', '').strip() or '0'),
+                    })
+                except Exception:
+                    continue
+
+            marker_table = None
+            marker_row_idx = -1
+            for tb in doc.tables:
+                found = False
+                for ri, rw in enumerate(tb.rows):
+                    for c in rw.cells:
+                        if '{{ITEM_TABLE}}' in (c.text or ''):
+                            marker_table = tb
+                            marker_row_idx = ri
+                            found = True
+                            break
+                    if found:
+                        break
+                if found:
+                    break
+
+            if marker_table is not None and marker_row_idx >= 0:
+                # Xóa dòng marker
+                marker_table._tbl.remove(marker_table.rows[marker_row_idx]._tr)
+
+                col_count = len(marker_table.columns)
+
+                for idx, g in enumerate(goods, start=1):
+                    rw = marker_table.add_row().cells
+                    thanh_tien = int(g['sl']) * int(g['don_gia'])
+
+                    # Cấu trúc theo template không có cột thuế (7 cột)
+                    if col_count >= 7:
+                        rw[0].text = str(idx)
+                        rw[1].text = str(g['ten'])
+                        rw[2].text = str(g['model'])
+                        rw[3].text = str(g['dvt'])
+                        rw[4].text = str(g['sl'])
+                        rw[5].text = '{:,}'.format(int(g['don_gia']))
+                        if col_count == 7:
+                            rw[6].text = '{:,}'.format(thanh_tien)
+                        else:
+                            # nếu template còn cột thuế
+                            rw[6].text = str(g['thue'])
+                            rw[7].text = '{:,}'.format(thanh_tien)
+
+            doc.save(str(out_path))
+            self.uic9.label_noti.setStyleSheet('color: blue')
+            self.uic9.label_noti.setText(f'✅ Đã tạo hợp đồng: {out_path.name}')
+
+        except Exception as e:
+            self.uic9.label_noti.setStyleSheet('color: red')
+            self.uic9.label_noti.setText(f'❌ Lỗi tạo hợp đồng: {e}')
+
+    def add_company(self):
+        self.win_addcompanyview = QMainWindow()
+        self.uic9 = Ui_ViewDetailCompany()
+        self.uic9.setupUi(self.win_addcompanyview)
+        self.win_addcompanyview.show()
+
+        self.uic9.label_noti.setText("Thêm thông tin khách hàng mới vào CSDL")
+        self.uic9.tabWidget.setTabEnabled(1, False)
+        self.uic9.tabWidget.setTabEnabled(2, False)
+        self.uic9.but_tao_lead.hide()
+        self.uic9.but_tao_moi.clicked.connect(lambda: Crm.update_tt_cong_ty(self))
+        self.uic9.but_update.clicked.connect(lambda: Crm.update_tt_cong_ty(self))
+
+    def search_company(self):
+        current_tab_index = self.uic8.tabWidget.currentIndex()
+        if current_tab_index == self.uic8.tabWidget.indexOf(self.uic8.tab):
+            self.uic8.tableWidget.clear()
+            self.search_company_text = self.uic8.textEdit.toPlainText()
+
+            # Tối ưu: dùng 1 câu query UNION để giảm round-trip DB + tránh merge Python O(n^2)
+            search_text = f"%{self.search_company_text}%"
+            query = """
+                SELECT * FROM ds_cong_ty WHERE mst LIKE %s
+                UNION
+                SELECT * FROM ds_cong_ty WHERE ten_cong_ty LIKE %s
+                UNION
+                SELECT * FROM ds_cong_ty WHERE dia_chi LIKE %s
+                LIMIT 1000
+            """
+            result = misc.sql_all(query, (search_text, search_text, search_text))
+            if result:
+                self.uic8.tableWidget.setColumnCount(5)
+                self.uic8.tableWidget.setRowCount(len(result))
+                self.uic8.tableWidget.setHorizontalHeaderLabels(
+                    ['Mã KH', 'Mã số thuế', 'Tên công ty', 'Địa chỉ', 'Thao tác'])
+                self.uic8.tableWidget.setColumnWidth(0, 40)
+                self.uic8.tableWidget.setColumnWidth(1, 80)
+                self.uic8.tableWidget.setColumnWidth(2, 200)
+                self.uic8.tableWidget.setColumnWidth(3, 220)
+                self.uic8.tableWidget.setColumnWidth(4, 50)
+
+                for row in range(len(result)):
+                    self.uic8.tableWidget.setItem(row, 0, QTableWidgetItem(str(result[row][0])))
+                    self.uic8.tableWidget.setItem(row, 1, QTableWidgetItem(result[row][2]))
+                    self.uic8.tableWidget.setItem(row, 2, QTableWidgetItem(result[row][1]))
+                    self.uic8.tableWidget.setItem(row, 3, QTableWidgetItem(result[row][4]))
+
+                    # self.uic8.tableWidget.resizeRowToContents(row)
+
+                    but1 = QPushButton('Xem')
+                    but1.clicked.connect(lambda _, r=row: Crm.view_detail_company(self, result[r][2]))
+                    self.uic8.tableWidget.setCellWidget(row, 4, but1)
+
+                    # Get the current height of the row
+                    current_row_height = self.uic8.tableWidget.rowHeight(row)
+
+                    # Check if current row height exceeds maximum row height
+                    # if current_row_height > 65:
+                    self.uic8.tableWidget.setRowHeight(row, 70)
+
+                self.uic8.tableWidget.repaint()
+            else:
+                self.uic8.tableWidget.clear()
+                print('Lỗi không hiển thị được')
+        else:
+            self.uic8.tableWidget_2.clear()
+            self.search_company_text = self.uic8.textEdit.toPlainText()
+
+            # Tối ưu: query UNION, giảm tải DB và tránh dedupe Python
+            search_text = f"%{self.search_company_text}%"
+            query = """
+                SELECT * FROM ds_ca_nhan WHERE dien_thoai LIKE %s
+                UNION
+                SELECT * FROM ds_ca_nhan WHERE ten LIKE %s
+                UNION
+                SELECT * FROM ds_ca_nhan WHERE ten_cong_ty LIKE %s
+                LIMIT 1000
+            """
+            result1 = misc.sql_all(query, (search_text, search_text, search_text))
+            if result1:
+                self.uic8.tableWidget_2.setColumnCount(4)
+                self.uic8.tableWidget_2.setRowCount(len(result1))
+                self.uic8.tableWidget_2.setHorizontalHeaderLabels(
+                    ['Điện thoại', 'Tên khách hàng', 'Tên công ty', 'Thao tác'])
+                self.uic8.tableWidget_2.setColumnWidth(0, 100)
+                self.uic8.tableWidget_2.setColumnWidth(1, 200)
+                self.uic8.tableWidget_2.setColumnWidth(2, 200)
+                self.uic8.tableWidget_2.setColumnWidth(3, 70)
+
+                for row in range(len(result1)):
+                    self.uic8.tableWidget_2.setItem(row, 0, QTableWidgetItem(str(result1[row][1])))
+
+                    self.uic8.tableWidget_2.setItem(row, 1, QTableWidgetItem(result1[row][0]))
+                    self.uic8.tableWidget_2.setItem(row, 2, QTableWidgetItem(result1[row][6]))
+
+                    self.uic8.tableWidget_2.resizeRowToContents(row)
+
+                    but1 = QPushButton('Xem')
+                    but1.clicked.connect(lambda _, r=row: Crm.view_detail_canhan(self, r))
+
+                    self.uic8.tableWidget_2.setCellWidget(row, 3, but1)
+
+                    self.uic8.tableWidget_2.setRowHeight(row, 65)
+
+                self.uic8.tableWidget_2.repaint()
+            else:
+                print('Không tìm thấy kết quả!!!!')
+                self.uic8.tableWidget_2.clear()

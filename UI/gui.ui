@@ -1,0 +1,430 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>955</width>
+    <height>641</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MainWindow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QLabel" name="label_noti">
+    <property name="geometry">
+     <rect>
+      <x>140</x>
+      <y>50</y>
+      <width>741</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_username">
+    <property name="geometry">
+     <rect>
+      <x>820</x>
+      <y>505</y>
+      <width>111</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>11</pointsize>
+      <italic>true</italic>
+     </font>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignCenter</set>
+    </property>
+   </widget>
+   <widget class="QTableWidget" name="tableWidget">
+    <property name="geometry">
+     <rect>
+      <x>2</x>
+      <y>135</y>
+      <width>791</width>
+      <height>481</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_mydesk">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>820</x>
+      <y>135</y>
+      <width>115</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton#but_mydesk {
+	color: rgb(0, 0, 0);
+    border: 1px solid black;
+    background-color: rgb(230, 255, 245);
+
+}
+
+QPushButton#but_mydesk:hover {
+    background-color: rgb(255, 234, 235);
+}
+
+QPushButton#but_mydesk:pressed {			
+    padding-left: 2px;
+    padding-top: 2px;
+}
+</string>
+    </property>
+    <property name="text">
+     <string>Việc đang xử lý</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_co_hoi_moi">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>820</x>
+      <y>175</y>
+      <width>115</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Cơ hội MỚI</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_tao_co_hoi">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>820</x>
+      <y>215</y>
+      <width>115</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton#but_tao_co_hoi {
+	color: rgb(0, 0, 0);
+    border: 1px solid black;
+    background-color: rgb(230, 255, 245);
+
+}
+
+QPushButton#but_tao_co_hoi:hover {
+    background-color: rgb(255, 234, 235);
+}
+
+QPushButton#but_tao_co_hoi:pressed {			
+    padding-left: 2px;
+    padding-top: 2px;
+}
+</string>
+    </property>
+    <property name="text">
+     <string>Tạo cơ hội</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_crm">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>820</x>
+      <y>255</y>
+      <width>115</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>CRM</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_sua_bang_gia">
+    <property name="enabled">
+     <bool>false</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>820</x>
+      <y>425</y>
+      <width>115</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Sửa bảng giá</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_logout">
+    <property name="enabled">
+     <bool>false</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>820</x>
+      <y>465</y>
+      <width>115</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Logout</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_doanh_so">
+    <property name="geometry">
+     <rect>
+      <x>490</x>
+      <y>0</y>
+      <width>451</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>10</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Doanh số:  100.000.000 - Tỉ lệ thành công:  10/100</string>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_so_co_hoi">
+    <property name="geometry">
+     <rect>
+      <x>570</x>
+      <y>20</y>
+      <width>371</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>10</pointsize>
+      <italic>true</italic>
+     </font>
+    </property>
+    <property name="text">
+     <string>Bạn đã tạo ra 100 cơ hội cho team!</string>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="combo_user">
+    <property name="geometry">
+     <rect>
+      <x>562</x>
+      <y>100</y>
+      <width>231</width>
+      <height>31</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_profit">
+    <property name="geometry">
+     <rect>
+      <x>566</x>
+      <y>40</y>
+      <width>381</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>10</pointsize>
+      <italic>true</italic>
+     </font>
+    </property>
+    <property name="layoutDirection">
+     <enum>Qt::LeftToRight</enum>
+    </property>
+    <property name="text">
+     <string>...</string>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_quan_ly_kho">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>820</x>
+      <y>385</y>
+      <width>115</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton#but_quan_ly_kho {
+	color: rgb(0, 0, 0);
+	background-color: rgb(85, 170, 127);
+    border: 1px solid black;
+}
+
+QPushButton#but_quan_ly_kho:hover {
+    background-color: rgb(255, 234, 235);
+}
+
+QPushButton#but_quan_ly_kho:pressed {			
+    padding-left: 2px;
+    padding-top: 2px;
+}
+</string>
+    </property>
+    <property name="text">
+     <string>Quản lý kho</string>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="text_user">
+    <property name="geometry">
+     <rect>
+      <x>250</x>
+      <y>50</y>
+      <width>121</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">background-color: rgb(230, 255, 245);
+border-color: rgb(255, 234, 235);</string>
+    </property>
+    <property name="placeholderText">
+     <string>username</string>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="text_password">
+    <property name="geometry">
+     <rect>
+      <x>390</x>
+      <y>50</y>
+      <width>121</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">background-color: rgb(255, 234, 235);
+border-color: rgb(230, 255, 245);</string>
+    </property>
+    <property name="placeholderText">
+     <string>password</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_baocao">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>820</x>
+      <y>295</y>
+      <width>115</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Kết quả kinh doanh</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label">
+    <property name="geometry">
+     <rect>
+      <x>2</x>
+      <y>0</y>
+      <width>101</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">border-image: url(:/Logo/Logo PCCC.png);</string>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+   </widget>
+   <widget class="QToolButton" name="but_tao_don_hang">
+    <property name="geometry">
+     <rect>
+      <x>820</x>
+      <y>340</y>
+      <width>115</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Tạo đơn hàng</string>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="tex_search">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>101</y>
+      <width>541</width>
+      <height>30</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">border: 2px solid black;
+border-color: rgb(0, 170, 0);</string>
+    </property>
+    <property name="placeholderText">
+     <string>Tìm theo số điện thoại, số báo giá, tên KH</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_chat">
+    <property name="geometry">
+     <rect>
+      <x>834</x>
+      <y>590</y>
+      <width>91</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Chat với Anna</string>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>955</width>
+     <height>22</height>
+    </rect>
+   </property>
+  </widget>
+ </widget>
+ <resources>
+  <include location="../hinhanh.qrc"/>
+ </resources>
+ <connections/>
+</ui>

@@ -1,0 +1,30 @@
+
+self.uic4 = Ui_LeadUpdate()
+self.uic4.setupUi(self.win_update_lead)
+
+self.uic5 = Ui_Win_bao_gia()
+self.current_uic = self.uic5
+
+self.win_order = QMainWindow()
+self.uic6 = Ui_Don_hang()
+self.uic6.setupUi(self.win_order)
+
+self.uic8 = Ui_NhapKho()
+self.uic8.setupUi(self.win_nhap)
+
+self.uic9 = Ui_ViewDetailCompany()
+self.uic9.setupUi(self.win_addcompanyview)
+
+self.uic9 = Ui_SanPhamMoi()
+self.uic9.setupUi(self.win_sp)
+
+
+self.uic10 = Ui_ViewDetailCompany()
+self.uic10.setupUi(self.win_detailcompanyview)
+
+self.uic12 = Ui_Win_bao_gia()
+self.current_uic = self.uic12
+
+self.uic13 = Ui_Report()
+self.uic13.setupUi(self.win_baocao)
+self.win_baocao.show()

@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>mainWindow</class>
+ <widget class="QMainWindow" name="mainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>800</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MainWindow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QLabel" name="label_noti">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>30</y>
+      <width>561</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_username">
+    <property name="geometry">
+     <rect>
+      <x>630</x>
+      <y>10</y>
+      <width>161</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>11</pointsize>
+      <italic>true</italic>
+     </font>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_3">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>509</y>
+      <width>91</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>20</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>F-Sales</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_4">
+    <property name="geometry">
+     <rect>
+      <x>637</x>
+      <y>549</y>
+      <width>151</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <italic>true</italic>
+     </font>
+    </property>
+    <property name="text">
+     <string>Phần mềm hỗ trợ bán hàng</string>
+    </property>
+   </widget>
+   <widget class="QTableWidget" name="tableWidget">
+    <property name="geometry">
+     <rect>
+      <x>2</x>
+      <y>100</y>
+      <width>651</width>
+      <height>481</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_mydesk">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>100</y>
+      <width>121</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Việc đang xử lý</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_co_hoi_moi">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>160</y>
+      <width>121</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Cơ hội MỚI</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_tao_co_hoi">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>220</y>
+      <width>121</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Tạo cơ hội</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_quanlykho">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>280</y>
+      <width>121</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Quản lý kho</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_sanxuat">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>340</y>
+      <width>121</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Sản xuất</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_sua_bang_gia">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>400</y>
+      <width>121</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Sửa bảng giá</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_logout">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>470</y>
+      <width>121</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Đăng xuất</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_login">
+    <property name="geometry">
+     <rect>
+      <x>670</x>
+      <y>0</y>
+      <width>121</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Đăng nhập</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_doanh_so">
+    <property name="geometry">
+     <rect>
+      <x>490</x>
+      <y>30</y>
+      <width>301</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>10</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Doanh số:  100.000.000 - Tỉ lệ thành công:  10/100</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_so_co_hoi">
+    <property name="geometry">
+     <rect>
+      <x>568</x>
+      <y>48</y>
+      <width>221</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>10</pointsize>
+      <italic>true</italic>
+     </font>
+    </property>
+    <property name="text">
+     <string>Bạn đã tạo ra 100 cơ hội cho team!</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="combo_user">
+    <property name="geometry">
+     <rect>
+      <x>541</x>
+      <y>75</y>
+      <width>111</width>
+      <height>23</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="combo_status">
+    <property name="geometry">
+     <rect>
+      <x>423</x>
+      <y>75</y>
+      <width>111</width>
+      <height>23</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="tex_search">
+    <property name="geometry">
+     <rect>
+      <x>8</x>
+      <y>73</y>
+      <width>410</width>
+      <height>25</height>
+     </rect>
+    </property>
+    <property name="placeholderText">
+     <string>Tìm kiếm ...</string>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>800</width>
+     <height>21</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

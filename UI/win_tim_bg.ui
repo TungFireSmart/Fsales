@@ -1,0 +1,610 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Win_tim_bg</class>
+ <widget class="QMainWindow" name="Win_tim_bg">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>800</width>
+    <height>700</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>800</width>
+    <height>700</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>800</width>
+    <height>700</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>Tạo báo giá mới</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QLabel" name="label_2">
+    <property name="geometry">
+     <rect>
+      <x>14</x>
+      <y>38</y>
+      <width>81</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>12</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Kính gửi:</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_3">
+    <property name="geometry">
+     <rect>
+      <x>14</x>
+      <y>71</y>
+      <width>81</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>12</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Anh/Chị:</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_4">
+    <property name="geometry">
+     <rect>
+      <x>306</x>
+      <y>101</y>
+      <width>81</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>12</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Điện thoại:</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_5">
+    <property name="geometry">
+     <rect>
+      <x>17</x>
+      <y>102</y>
+      <width>81</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>12</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Email:</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_so_bg">
+    <property name="geometry">
+     <rect>
+      <x>592</x>
+      <y>68</y>
+      <width>181</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>12</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Số:</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_ngay">
+    <property name="geometry">
+     <rect>
+      <x>590</x>
+      <y>100</y>
+      <width>181</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>12</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Ngày:</string>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="text_ten_congty">
+    <property name="geometry">
+     <rect>
+      <x>86</x>
+      <y>38</y>
+      <width>456</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>9</pointsize>
+     </font>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="text_nguoi_lien_he">
+    <property name="geometry">
+     <rect>
+      <x>86</x>
+      <y>70</y>
+      <width>211</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>9</pointsize>
+     </font>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="text_sdt">
+    <property name="geometry">
+     <rect>
+      <x>392</x>
+      <y>100</y>
+      <width>150</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>9</pointsize>
+     </font>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="text_email">
+    <property name="geometry">
+     <rect>
+      <x>86</x>
+      <y>100</y>
+      <width>211</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>9</pointsize>
+     </font>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="text_noi_dung">
+    <property name="geometry">
+     <rect>
+      <x>86</x>
+      <y>130</y>
+      <width>701</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>9</pointsize>
+     </font>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_8">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>505</y>
+      <width>81</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>12</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Ghi chú:</string>
+    </property>
+   </widget>
+   <widget class="Line" name="line">
+    <property name="geometry">
+     <rect>
+      <x>16</x>
+      <y>160</y>
+      <width>770</width>
+      <height>3</height>
+     </rect>
+    </property>
+    <property name="orientation">
+     <enum>Qt::Horizontal</enum>
+    </property>
+   </widget>
+   <widget class="QTableWidget" name="tableWidget">
+    <property name="geometry">
+     <rect>
+      <x>16</x>
+      <y>170</y>
+      <width>770</width>
+      <height>331</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="text_ghi_chu">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>538</y>
+      <width>571</width>
+      <height>121</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_them_dong">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>610</x>
+      <y>568</y>
+      <width>75</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Thêm dòng</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_xoa_dong">
+    <property name="enabled">
+     <bool>true</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>700</x>
+      <y>568</y>
+      <width>75</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Xóa dòng</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_luu_file">
+    <property name="enabled">
+     <bool>false</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>644</x>
+      <y>599</y>
+      <width>111</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Lưu file</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_excel">
+    <property name="enabled">
+     <bool>false</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>320</x>
+      <y>510</y>
+      <width>75</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Tải Excel</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_pdf">
+    <property name="enabled">
+     <bool>false</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>420</x>
+      <y>510</y>
+      <width>75</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Tải PDF</string>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="text_mst">
+    <property name="geometry">
+     <rect>
+      <x>392</x>
+      <y>69</y>
+      <width>150</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>9</pointsize>
+     </font>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_9">
+    <property name="geometry">
+     <rect>
+      <x>305</x>
+      <y>70</y>
+      <width>81</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>12</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Mã số thuế:</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_timkiem">
+    <property name="geometry">
+     <rect>
+      <x>610</x>
+      <y>10</y>
+      <width>161</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>18</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>TÌM KIẾM</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="thongbao">
+    <property name="geometry">
+     <rect>
+      <x>140</x>
+      <y>10</y>
+      <width>381</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>11</pointsize>
+      <weight>75</weight>
+      <italic>true</italic>
+      <bold>true</bold>
+     </font>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_vat">
+    <property name="geometry">
+     <rect>
+      <x>600</x>
+      <y>510</y>
+      <width>191</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>10</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>VAT 10%: </string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_tong">
+    <property name="geometry">
+     <rect>
+      <x>600</x>
+      <y>530</y>
+      <width>191</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>10</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Tổng + Thuế:</string>
+    </property>
+   </widget>
+   <widget class="Line" name="line_2">
+    <property name="geometry">
+     <rect>
+      <x>15</x>
+      <y>197</y>
+      <width>770</width>
+      <height>3</height>
+     </rect>
+    </property>
+    <property name="orientation">
+     <enum>Qt::Horizontal</enum>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="text_so_bg">
+    <property name="geometry">
+     <rect>
+      <x>640</x>
+      <y>67</y>
+      <width>141</width>
+      <height>24</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="text_ngay_bg">
+    <property name="geometry">
+     <rect>
+      <x>640</x>
+      <y>100</y>
+      <width>141</width>
+      <height>24</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>130</y>
+      <width>71</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>12</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Nội dung:</string>
+    </property>
+   </widget>
+   <zorder>label_2</zorder>
+   <zorder>label_3</zorder>
+   <zorder>label_4</zorder>
+   <zorder>label_5</zorder>
+   <zorder>label_so_bg</zorder>
+   <zorder>label_ngay</zorder>
+   <zorder>text_ten_congty</zorder>
+   <zorder>text_nguoi_lien_he</zorder>
+   <zorder>text_sdt</zorder>
+   <zorder>text_email</zorder>
+   <zorder>text_noi_dung</zorder>
+   <zorder>line</zorder>
+   <zorder>tableWidget</zorder>
+   <zorder>text_ghi_chu</zorder>
+   <zorder>label_8</zorder>
+   <zorder>but_them_dong</zorder>
+   <zorder>but_xoa_dong</zorder>
+   <zorder>but_luu_file</zorder>
+   <zorder>but_excel</zorder>
+   <zorder>but_pdf</zorder>
+   <zorder>text_mst</zorder>
+   <zorder>label_9</zorder>
+   <zorder>but_timkiem</zorder>
+   <zorder>thongbao</zorder>
+   <zorder>label_vat</zorder>
+   <zorder>label_tong</zorder>
+   <zorder>line_2</zorder>
+   <zorder>text_so_bg</zorder>
+   <zorder>text_ngay_bg</zorder>
+   <zorder>label</zorder>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>800</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>File</string>
+    </property>
+    <addaction name="menu_tao_kh"/>
+    <addaction name="menu_xem_bg_cu"/>
+    <addaction name="separator"/>
+    <addaction name="actionT_o_kh_ch_h_ng_m_i"/>
+    <addaction name="menu_xem_kh_cu"/>
+    <addaction name="separator"/>
+    <addaction name="actionK_t_th_c"/>
+   </widget>
+   <widget class="QMenu" name="menuH_ng_d_n">
+    <property name="title">
+     <string>Setup</string>
+    </property>
+    <addaction name="actionH_ng_d_n_s_d_ng"/>
+    <addaction name="separator"/>
+    <addaction name="actionSetup"/>
+    <addaction name="actionUpdate"/>
+   </widget>
+   <addaction name="menuFile"/>
+   <addaction name="menuH_ng_d_n"/>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+  <action name="menu_tao_kh">
+   <property name="text">
+    <string>Tạo báo giá mới</string>
+   </property>
+  </action>
+  <action name="menu_xem_bg_cu">
+   <property name="text">
+    <string>Xem báo giá đã gửi</string>
+   </property>
+  </action>
+  <action name="actionT_o_kh_ch_h_ng_m_i">
+   <property name="text">
+    <string>Tạo khách hàng mới</string>
+   </property>
+  </action>
+  <action name="menu_xem_kh_cu">
+   <property name="text">
+    <string>Xem thông tin KH</string>
+   </property>
+  </action>
+  <action name="actionK_t_th_c">
+   <property name="text">
+    <string>Kết thúc</string>
+   </property>
+  </action>
+  <action name="actionH_ng_d_n_s_d_ng">
+   <property name="text">
+    <string>Hướng dẫn sử dụng</string>
+   </property>
+  </action>
+  <action name="actionUpdate">
+   <property name="text">
+    <string>Update...</string>
+   </property>
+  </action>
+  <action name="actionSetup">
+   <property name="text">
+    <string>Setup</string>
+   </property>
+  </action>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

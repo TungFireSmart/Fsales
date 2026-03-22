@@ -1,0 +1,939 @@
+import re
+from datetime import datetime
+
+from PyQt6.QtWidgets import QPushButton, QCompleter, QLineEdit, QStyle, QApplication, QMainWindow, QTableWidgetItem, \
+    QStyledItemDelegate, QMessageBox
+from PyQt6.QtGui import QColor, QBrush
+from PyQt6.QtCore import Qt, QStringListModel, QUrl
+from PyQt6.QtCore import QTimer
+
+import misc
+from UI.win_bao_gia import Ui_Win_bao_gia
+from UI.quotation_update import Ui_ListBaoGia
+from order_handle import OrderHandle
+from crm import Crm
+import file_handle
+import lead_handle
+from quotation_save import QuotationSaver
+
+
+class AutoCompletingLineEdit(QLineEdit):
+    def __init__(self, row, col, table, update_callback):
+        super().__init__()
+        self.row = row
+        self.col = col
+        self.table = table
+        self.update_callback = update_callback
+        self._committed = False   # 🔒 chặn commit nhiều lần
+
+        self.textEdited.connect(self.on_text_edited)
+
+        self._commit_timer = QTimer(self)
+        self._commit_timer.setSingleShot(True)
+        self._commit_timer.timeout.connect(self._safe_commit)
+
+        self.editingFinished.connect(self._on_editing_finished)
+
+    def on_text_edited(self, text):
+        if self.completer():
+            self.completer().setCompletionPrefix(text)
+            self.completer().complete()
+
+        # reset timer mỗi lần gõ
+        self._commit_timer.stop()
+
+    def _on_editing_finished(self):
+        if self._committed:
+            return
+        self._commit_timer.start(300)
+
+    def _safe_commit(self):
+        if self._committed:
+            return
+        self._committed = True
+
+        text = self.text().strip()
+
+        # 🚫 text quá ngắn thì chỉ đóng editor, KHÔNG commit
+        if len(text) < 3:
+            self._cleanup_editor()
+            return
+
+        try:
+            self.update_callback(self.row, self.col, text, self.table)
+        finally:
+            self._cleanup_editor()
+
+    def _cleanup_editor(self):
+        # 🧯 HỦY TIMER TRƯỚC KHI XÓA
+        if self._commit_timer.isActive():
+            self._commit_timer.stop()
+
+        # 🧯 gỡ widget an toàn
+        if self.table.cellWidget(self.row, self.col) is self:
+            self.table.removeCellWidget(self.row, self.col)
+
+        self.deleteLater()
+        self.table.viewport().update()
+
+
+
+class CustomDelegate(QStyledItemDelegate):
+    def __init__(self, selected_color_hex):
+        super().__init__()
+        self.selected_color = QColor(selected_color_hex)
+
+    def paint(self, painter, option, index):
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.save()
+            painter.fillRect(option.rect, QBrush(self.selected_color))
+            painter.setPen(QColor('black'))
+            painter.drawText(option.rect, Qt.AlignmentFlag.AlignLeft, index.data())
+            painter.restore()
+        else:
+            super().paint(painter, option, index)
+
+
+class Quotato(QMainWindow):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.user = None
+        self.user_power = None
+        self.user_phone = None
+
+        self.setWindowTitle(QApplication.translate("Quotation", "Fsale v1.1.28"))
+        self._completers = []  # giữ tham chiếu tránh bị GC
+
+        # Load dữ liệu autocomplete
+        self._load_product_cache()
+
+    def _load_product_cache(self):
+        """
+        Load toàn bộ bảng gia_tong_hop vào RAM (1 lần duy nhất)
+        """
+        rows = misc.sql_all("""
+            SELECT ten_san_pham, model, nhan_hieu, don_vi, vat, nhan_cong
+            FROM gia_tong_hop
+        """)
+
+        self.product_cache = []
+        self._map_ten = {}
+        self._map_model = {}
+
+        for r in rows:
+            item = {
+                "ten": r[0],
+                "model": r[1],
+                "nhan_hieu": r[2],
+                "don_vi": r[3],
+                "vat": r[4],
+                "nhan_cong": r[5],
+            }
+            self.product_cache.append(item)
+
+            if r[0]:
+                self._map_ten[r[0].lower()] = item
+            if r[1]:
+                self._map_model[r[1].lower()] = item
+
+    def setup_autocomplete_cell(self, row, col, table, items):
+        item = QTableWidgetItem()
+        item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
+        table.setItem(row, col, item)
+
+        line_edit = AutoCompletingLineEdit(
+            row=row,
+            col=col,
+            table=table,
+            update_callback=self.update_table_item_text
+        )
+
+        model = QStringListModel(items)
+        completer = QCompleter()
+        completer.setModel(model)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+
+        line_edit.setCompleter(completer)
+        self._completers.append(completer)
+
+        table.setCellWidget(row, col, line_edit)
+        line_edit.setFocus()
+        line_edit.selectAll()
+
+    def update_table_item_text(self, row, col, text, table):
+        """
+        Cập nhật dữ liệu bảng báo giá từ CACHE RAM (KHÔNG SQL)
+        col = 0: Tên sản phẩm
+        col = 1: Model
+        """
+
+        # Set text cho ô đang edit
+        item = table.item(row, col)
+        if item is None:
+            item = QTableWidgetItem()
+            table.setItem(row, col, item)
+
+        item.setText(text)
+
+        text_key = text.strip().lower()
+        product = None
+
+        # === LẤY DỮ LIỆU TỪ CACHE RAM ===
+        if col == 0:  # theo TÊN SẢN PHẨM
+            product = self._map_ten.get(text_key)
+        elif col == 1:  # theo MODEL
+            product = self._map_model.get(text_key)
+
+        # === NẾU KHÔNG TÌM THẤY TRONG CACHE → DỪNG ===
+        if not product:
+            table.repaint()
+            return
+
+        # === ĐIỀN CÁC CỘT LIÊN QUAN ===
+        # Cột 0: Tên sản phẩm
+        if table.item(row, 0) is None:
+            table.setItem(row, 0, QTableWidgetItem())
+        table.item(row, 0).setText(product.get("ten", ""))
+
+        # Cột 1: Model
+        if table.item(row, 1) is None:
+            table.setItem(row, 1, QTableWidgetItem())
+        table.item(row, 1).setText(product.get("model", ""))
+
+        # Các cột còn lại (nếu tồn tại)
+        if table.columnCount() > 2:
+            # Cột 2: Nhãn hiệu
+            table.setItem(row, 2, QTableWidgetItem(str(product.get("nhan_hieu", ""))))
+
+            # Cột 3: Đơn vị tính
+            table.setItem(row, 3, QTableWidgetItem(str(product.get("don_vi", ""))))
+
+            # Cột 6: VAT
+            table.setItem(row, 6, QTableWidgetItem(str(product.get("vat", ""))))
+
+            # Cột 7: Nhân công
+            table.setItem(row, 7, QTableWidgetItem(str(product.get("nhan_cong", ""))))
+
+        # Refresh UI
+        table.viewport().update()
+
+    def add_autocomplete_editor(self, table, row):
+        for col in range(2):  # 0 = tên sản phẩm, 1 = model
+            if col == 0:
+                items = list(self._map_ten.keys())
+            else:
+                items = list(self._map_model.keys())
+
+            self.setup_autocomplete_cell(row, col, table, items)
+
+    def handle_double_click(self, row, col, table):
+        if col not in [0, 1]:
+            return
+
+        current_text = table.item(row, col).text() if table.item(row, col) else ""
+        items = self.all_ten_sp if col == 0 else self.all_model
+        self.setup_autocomplete_cell(row, col, table, items)
+        editor = table.cellWidget(row, col)
+        editor.setText(current_text)
+        editor.setFocus()
+        editor.selectAll()
+
+    def before_make_quotation(self, lead_id):
+
+        kq = misc.sql_all("SELECT * from ds_bao_gia WHERE lead_id = %s", (lead_id,))
+
+        # [ten cong ty - ten khach hang - so dt - lead id - ten co hoi - mst]
+        if kq:
+            Quotato.show_list_quotation(self, lead_id, kq)
+        else:
+            Quotato.make_quotation(self, lead_id)
+
+    def show_list_quotation(self, lead_id, kq):
+        self.win_listBaoGia = QMainWindow()
+        self.uic11 = Ui_ListBaoGia()
+        self.uic11.setupUi(self.win_listBaoGia)
+        self.win_listBaoGia.show()
+
+        self.uic11.label_header.setText("DANH SÁCH BÁO GIÁ - LEAD SỐ " + str(lead_id))
+
+        # [ten cong ty - ten khach hang - so dt - lead id - ten co hoi - mst]
+        self.uic11.but_new_quotation.clicked.connect(lambda: Quotato.make_quotation(self, lead_id))
+
+        noi_dung = misc.sql_one("SELECT yc FROM sale_lead WHERE lead_id = %s", (lead_id,))[0]
+
+        if kq:
+            self.uic11.tableWidget.setColumnCount(6)
+            self.uic11.tableWidget.setRowCount(len(kq))
+            self.uic11.tableWidget.setHorizontalHeaderLabels(
+                ['Số BG', 'Ngày tháng', 'Nội dung', 'Giá trị', 'Chọn', 'Download file'])
+            self.uic11.tableWidget.setColumnWidth(0, 50)
+            self.uic11.tableWidget.setColumnWidth(1, 80)
+            self.uic11.tableWidget.setColumnWidth(2, 250)
+            self.uic11.tableWidget.setColumnWidth(3, 100)
+            self.uic11.tableWidget.setColumnWidth(4, 100)
+            self.uic11.tableWidget.setColumnWidth(4, 100)
+
+            for row in range(len(kq)):
+                self.uic11.tableWidget.setItem(row, 0, QTableWidgetItem(str(kq[row][0])))
+                self.uic11.tableWidget.setItem(row, 1, QTableWidgetItem(str(kq[row][2])))
+                self.uic11.tableWidget.setItem(row, 2, QTableWidgetItem(str(noi_dung)))
+
+                if kq[row][11] is not None:
+                    temp = "{:,.0f}".format((kq[row][11]))
+                    self.uic11.tableWidget.setItem(row, 3, QTableWidgetItem(temp))
+
+                self.uic11.tableWidget.resizeRowToContents(row)
+
+                but1 = QPushButton('Xem')
+                but1.clicked.connect(lambda: Quotato.xem_bg_cu(self, lead_id))
+                self.uic11.tableWidget.setCellWidget(row, 4, but1)
+
+                """if self.user_power < 41:
+                    but2.setEnabled(False)
+                    but5.setEnabled(False)"""
+
+                but3 = QPushButton('Tải')
+                but3.clicked.connect(lambda: Quotato.download_1(self, kq[self.uic11.tableWidget.currentRow()][13]))
+                self.uic11.tableWidget.setCellWidget(row, 5, but3)
+
+                if kq[row][13] is None:
+                    but3.setEnabled(False)
+                # Get the current height of the row
+                current_row_height = self.uic11.tableWidget.rowHeight(row)
+
+                # Check if current row height exceeds maximum row height
+                if current_row_height > 65:
+                    self.uic11.tableWidget.setRowHeight(row, 65)
+
+        else:
+            print('Lỗi không hiển thị được')
+            self.uic11.tableWidget.clear()
+            pass
+
+    def xem_bg_cu(self, lead_id):
+        try:
+            self.sub_win1 = QMainWindow()
+            self.uic5 = Ui_Win_bao_gia()
+            self.uic5.setupUi(self.sub_win1)
+            self.sub_win1.show()
+        except Exception as e:
+            print(e)
+
+        try:
+            row = self.uic11.tableWidget.currentRow()
+            so_bg = self.uic11.tableWidget.item(row, 0).text().strip()
+            self.win_listBaoGia.close()
+
+            # Tìm thông tin báo giá theo số báo giá
+
+            kq = misc.sql_one("SELECT * from ds_bao_gia WHERE so_bg = %s", (so_bg,))
+            # Nếu báo giá không có nội dung thì xóa báo giá có số đó đi
+            if kq:
+                if kq[3] is None or kq[3] == "":
+                    misc.sql_commit("DELETE FROM ds_bao_gia WHERE so_bg = %s", (int(so_bg),))
+
+            kq = misc.sql_one("SELECT * from ds_bao_gia WHERE so_bg = %s", (int(so_bg),))
+
+            # Nếu không tìm thấy báo giá có số đó thì tạo báo giá mới theo thông tin khách hàng
+            if kq is None:
+
+                data1 = misc.tao_bao_gia(lead_id, self.user)
+                so_bg = str(data1[1])
+                self.uic5.label_noti.setStyleSheet("color: red;")
+                self.uic5.label_noti.setText(data1[0])
+                self.uic5.label_so_bg.setText(so_bg)
+                data = None
+
+            # Nếu có báo giá số đó thì lấy nội dung ra rồi hiển thị
+            else:
+                if kq[16] == 'T':
+                    self.uic5.checkBox.setChecked(True)
+                else:
+                    self.uic5.checkBox.setChecked(False)
+
+                self.uic5.checkBox.repaint()
+
+                goods = kq[3].split('@')
+                data = []
+                for item in goods:
+                    data.append(item.split('|'))
+
+                if kq[4] == 'T':
+                    self.uic5.but_luu_file.setDisabled(True)
+                    self.uic5.label_noti.setStyleSheet("color: red")
+                    self.uic5.label_noti.setText('Báo giá này đã xuất hàng, không sửa được nữa.')
+                    self.uic5.label_noti.repaint()
+
+            Quotato.show_bg(self, lead_id, so_bg, data)
+        except Exception as e:
+            print(e)
+
+    def show_bg(self, lead_id, so_bg, data):
+
+        # Hiển thị file đã upload
+        old_files = misc.sql_one("SELECT file FROM sale_lead WHERE lead_id = %s", (lead_id,))
+        if old_files and old_files[0]:
+            ds_file = old_files[0].split('@@')
+
+            for f in ds_file:
+                name, fid, *_ = f.split('|')
+                self.uic5.txt_file.append(
+                    f'<a href="{fid}">📎 {name}</a> &nbsp; ----------- &nbsp; '
+                    f'<a href="delete:{fid}">🗑️ Xóa file</a><br>'
+                )
+        # Hiển thị lịch sử thanh toán
+        row = misc.sql_one(
+            "SELECT lich_su_gd FROM ds_don_hang WHERE so_bg = %s",
+            (so_bg,)
+        )
+
+        if not row:
+            # Không có đơn hàng cho báo giá này
+            self.uic5.label_noti.setStyleSheet('color: orange')
+            self.uic5.label_noti.setText('Báo giá này chưa được chuyển thành đơn hàng.')
+        else:
+            ls = row[0]
+            if not ls:
+                self.uic5.label_noti.setStyleSheet('color: orange')
+                self.uic5.label_noti.setText('Đơn hàng này chưa thanh toán đồng nào.')
+            else:
+                self.uic5.label_noti.setStyleSheet('color: green')
+                self.uic5.label_noti.setText(f'Lịch sử thanh toán: {ls}')
+
+        # Điền thông tin khách hàng
+        # [ten cong ty - ten khach hang - so dt - lead id - ten co hoi - mst]
+        ttkh = misc.sql_one("SELECT company, name, sdt, ten_co_hoi, mst, address FROM sale_lead WHERE lead_id = %s", (lead_id,))
+        self.uic5.text_ten_congty.setText(ttkh[0] or '')
+        self.uic5.text_nguoi_lien_he.setText(ttkh[1] or '')
+        self.uic5.text_sdt.setText(ttkh[2] or '')
+        self.uic5.label_lead_id.setText(lead_id or '')
+        self.uic5.text_noi_dung.setText(ttkh[3] or '')
+        self.uic5.text_dia_chi.setText(ttkh[5] or '')
+
+        self.uic5.text_mst.setText(ttkh[4] or '')
+        self.uic5.text_dia_chi.setText(ttkh[5] or '')
+
+        # Hiển thị đúng ngày báo giá từ DB (không dùng ngày hiện tại)
+        ngay_bg_row = misc.sql_one("SELECT ngaythang FROM ds_bao_gia WHERE so_bg = %s", (so_bg,))
+        ngay_bg = ngay_bg_row[0] if ngay_bg_row else None
+        if ngay_bg:
+            self.uic5.label_ngay.setText(str(ngay_bg))
+        else:
+            self.uic5.label_ngay.setText(str(datetime.now().date()))
+        self.uic5.label_so_bg.setText(str(so_bg))
+
+        USER_DEFAULT_CTY = {
+            'Lê Văn Việt': 'BG PCCC.vn',
+            'Nguyễn Hải Hà': 'BG PCCC.vn',
+            'Hoàng Thị Thanh Nga': 'BG PCCC.vn',
+            'Nguyễn Thị Tuyết': 'BG PCCC.vn',
+            'Nguyễn Ngọc Linh': 'BG PCCC.vn',
+            'Phí Ngọc Tùng': 'BG PCCC.vn',
+            'Dương Lê Hiệp': 'BG BlueTech',
+            'Nguyễn Thanh Vương': 'BG Bachkhoa',
+            'Nguyễn T M Huệ': 'BG Bachkhoa'
+        }
+        self.uic5.combo_cty.addItems(['BG PCCC.vn', 'BG BlueTech', 'BG Infutech', 'BG Bachkhoa'])
+        # ==== COMBO CTY ====
+        cty_list = [
+            'BG PCCC.vn',
+            'BG BlueTech',
+            'BG Infutech',
+            'BG Bachkhoa'
+        ]
+
+        self.uic5.combo_cty.clear()
+        self.uic5.combo_cty.addItems(cty_list)
+
+        # ==== SET DEFAULT THEO USER ====
+        default_cty = USER_DEFAULT_CTY.get(self.user)
+
+        if default_cty in cty_list:
+            self.uic5.combo_cty.setCurrentText(default_cty)
+        else:
+            # fallback an toàn
+            self.uic5.combo_cty.setCurrentIndex(0)
+
+        # Set custom delegate with hex color for selected cells
+        self.uic5.tableWidget.setItemDelegate(CustomDelegate("#e6fff5"))  # Yellow color in hex
+
+        self.uic5.but_them_dong.clicked.connect(lambda: Quotato.them_dong_uic5(self))
+        self.uic5.but_xoa_dong.clicked.connect(lambda: Quotato.xoa_dong(self))
+        self.uic5.but_luu_file.clicked.connect(lambda: QuotationSaver.sum_save(self, so_bg, self.uic5))
+        self.uic5.but_excel.clicked.connect(lambda: Quotato.save_excel(self, so_bg))
+
+        # Chức năng xử lý file
+        self.uic5.but_upload.clicked.connect(lambda: file_handle.handle_upload(lead_id, self.uic5))
+        self.uic5.txt_file.anchorClicked.connect(
+            lambda url: file_handle.handle_download_or_delete(url, lead_id, self.uic5))
+        self.uic5.txt_file.setOpenLinks(False)  # 🚫 Prevent navigation
+
+        self.uic5.but_tao_don_hang.clicked.connect(lambda: Quotato.tao_don_hang(self, so_bg, lead_id, self.uic5))
+        self.uic5.but_hop_dong.clicked.connect(lambda: Quotato.tao_hop_dong(self))
+        self.uic5.but_save_thong_tin.clicked.connect(lambda: Quotato.save_quote_customer_info(self, lead_id, self.uic5))
+
+        header = ['Mô tả sản phẩm', 'Model', 'Nhãn hiệu', 'ĐV tính', 'Số lượng', 'Đơn giá', 'Thuế']
+        self.uic5.tableWidget.setHorizontalHeaderLabels(header)
+
+        if data is None:
+            # Hiển thị nội dung báo giá trắng
+            Quotato.draft_bao_gia(self, self.uic5)
+
+        else:
+            # Hiển thị nội dung báo giá cũ
+            Quotato.show_bao_gia_cu(self, data, 0, self.uic5)
+            try:
+                mg = misc.sql_one("SELECT ghi_chu FROM ds_bao_gia WHERE so_bg = %s", (so_bg,))[0]
+                if mg.strip() != '': self.uic5.comboBox.setCurrentText(mg)
+            except Exception as e:
+                print(e)
+            QuotationSaver.sum_save(self, so_bg, self.uic5)
+
+        self.uic5.but_them_dong.setEnabled(True)
+        self.uic5.but_xoa_dong.setEnabled(True)
+        self.uic5.but_luu_file.setEnabled(True)
+
+    def upload_file(self, lead_id, uic):
+        uic.txt_file.append('<span style="color:green;">⏳ Đang tải file lên Google Drive...</span>')
+
+        uploaded = file_handle.upload_file()
+        if not uploaded:
+            return
+
+        file = str(lead_id) + '|' + uploaded
+
+        old_files = misc.sql_one("SELECT file FROM sale_lead WHERE lead_id = %s", (lead_id,))
+        if old_files and old_files[0]:
+            file = old_files[0] + '@@' + uploaded
+            misc.sql_commit("UPDATE sale_lead SET file = %s WHERE lead_id = %s", (file, lead_id))
+            ds_file = file.split('@@')
+        else:
+            misc.sql_commit("UPDATE sale_lead SET file = %s WHERE lead_id = %s", (file, lead_id))
+            ds_file = [uploaded]
+
+        uic.txt_file.clear()
+        for f in ds_file:
+            name, fid, *_ = f.split('|')
+            uic.txt_file.append(
+                f'<a href="{fid}">📎 {name}</a> &nbsp; ----------- &nbsp; '
+                f'<a href="delete:{fid}">🗑️ Xóa file</a><br>'
+            )
+
+    def refresh_file_list(self, lead_id, uic):
+        uic.txt_file.clear()
+
+        result = misc.sql_one("SELECT file FROM sale_lead WHERE lead_id = %s", (lead_id,))
+        if result and result[0]:
+            ds_file = result[0].split('@@')
+            for f in ds_file:
+                try:
+                    name, fid, *_ = f.split('|')
+                    uic.txt_file.append(
+                        f'<a href="{fid}">📎 {name}</a> &nbsp; ----------- &nbsp; '
+                        f'<a href="delete:{fid}">🗑️ Xóa file</a><br>'
+                    )
+                except Exception as e:
+                    print(f"Lỗi khi xử lý file: {f} – {e}")
+
+    def handle_file_download(self, url: QUrl, lead_id, uic):
+        url_str = url.toString()
+
+        # 🔥 Handle delete link
+        if url_str.startswith("delete:"):
+            file_id = url_str.replace("delete:", "")
+            # lead_id = self.uic4.label_lead_id.text() if hasattr(self, "uic4") else self.uic3.label_lead_id.text()
+            # uic = self.uic4 if hasattr(self, "uic4") else self.uic3
+
+            confirm = QMessageBox.question(
+                uic.txt_file,
+                "Xác nhận xóa",
+                "Bạn có chắc muốn xóa file này khỏi Google Drive?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if confirm == QMessageBox.StandardButton.Yes:
+                file_handle.delete_file_from_drive(file_id)
+                file_handle.remove_file_from_sale_lead(lead_id, file_id)
+                OrderHandle.refresh_file_list(self, lead_id, uic)
+
+            return
+
+        # 📥 Handle normal download
+        file_id = url_str
+
+        html = uic.txt_file.toHtml()
+
+
+        pattern = rf'<a href="{re.escape(file_id)}".*?>(?:<span.*?>)?(.*?)(?:</span>)?</a>'
+        match = re.search(pattern, html)
+        file_name = match.group(1) if match else "downloaded_file"
+
+        print(f"📥 Đang tải file với ID: {file_id}, Tên file: {file_name}")
+        file_handle.download_file(file_id, suggested_filename=file_name)
+
+    def them_dong_uic5(self):
+        table = self.uic5.tableWidget
+        row_position = table.rowCount()
+        table.insertRow(row_position)
+
+        # Mặc định tạo 7 cột
+        for col in range(7):
+            table.setItem(row_position, col, QTableWidgetItem(""))
+
+        # Gắn autocomplete cho 2 cột đầu
+        self.add_autocomplete_editor(table, row_position)
+
+    def tao_don_hang(self, so_bg, lead_id, uick):
+
+        try:
+            self.sub_win1.close()
+        except:
+            pass
+
+        try:
+            # tạo đơn hàng
+            kq = misc.sql_one("Select * from ds_bao_gia where so_bg = %s", (so_bg, ))
+
+            if kq and int(kq[15]) > 0:
+                OrderHandle.tao_don_hang(self, so_bg, lead_id, uick)
+                uick.label_noti.clear()
+            else:
+                uick.label_noti.setStyleSheet('color: red')
+                uick.label_noti.setText('Kiểm tra xem đã SUM & SAVE báo giá này chưa?')
+                uick.label_noti.repaint()
+        except Exception as e:
+            print(e)
+
+    def make_quotation(self, lead_id):
+        # Khởi động màn hình
+        self.sub_win1 = QMainWindow()
+        self.uic5 = Ui_Win_bao_gia()
+        self.uic5.setupUi(self.sub_win1)
+
+        self.sub_win1.show()
+        self.uic5.but_save_thong_tin.hide()
+
+        data = misc.tao_bao_gia(lead_id, self.user)
+        so_bg = str(data[1])
+        Quotato.show_bg(self, lead_id, so_bg, data=None)
+
+    def show_bao_gia_cu(self, data, index, uick):
+        if index == 0:
+            uic = uick.tableWidget
+        elif index == 1:
+            uic = uick.tableWidget_2
+        elif index == 2:
+            uic = uick.tableWidget_3
+        else:
+            uic = uick.tableWidget_4
+
+        # Hiển thị kết quả lên màn hình
+        uic.clear()
+
+        uic.setRowCount(len(data))  # tạo số row
+        uic.setColumnCount(8)  # tạo số column
+        uic.setColumnWidth(0, 400)
+        uic.setColumnWidth(1, 80)
+        uic.setColumnWidth(2, 80)
+        uic.setColumnWidth(3, 50)
+        uic.setColumnWidth(4, 60)
+        uic.setColumnWidth(5, 90)
+        uic.setColumnWidth(6, 90)
+        uic.setColumnWidth(7, 90)
+
+        header = ['Mô tả sản phẩm', 'Model', 'Nhãn hiệu', 'ĐV tính', 'Số lượng', 'Đơn giá', 'Thuế', 'Nhân công']
+        uic.setHorizontalHeaderLabels(header)
+        uic.repaint()
+
+        for row in range(uic.rowCount()):
+            if len(data[row]) == 6:
+                data[row].append("")
+            if len(data[row]) == 7:
+                data[row].append("")
+
+            for col in range(8):
+                item = QTableWidgetItem()
+                if col == 5:
+                    if data[row][col] != '':
+                        temp = str(data[row][col]).replace(",", "")
+                        item.setText("{:,}".format(round(int(temp), 0)))
+                else:
+                    item.setText(str(data[row][col]))
+                uic.setItem(row, col, item)
+            uic.resizeRowToContents(row)
+        uic.repaint()
+
+    def xoa_dong(self):
+        uic = self.uic5.tableWidget
+
+        selected_row = uic.currentRow()
+        if selected_row != -1:
+            uic.removeRow(selected_row)
+
+    def save_excel(self, so_bg):
+            self.uic5.but_excel.setEnabled(False)
+        # try:
+            if self.uic5.checkBox.isChecked():
+                nhap_tay = 'T'
+            else:
+                nhap_tay = 'F'
+
+            noi_dung_bao_gia = []
+            tablet = self.uic5.tableWidget
+
+            # Tính tổng giá trị hàng hóa có mức thuế = 8% và tổng giá trị có VAT = 10%
+            for row in range(tablet.rowCount()):
+                col_list = []
+                for col in range(8):
+                    try:
+                        tex = tablet.item(row, col).text().strip()
+                        if tex is None:
+                            tex = ''
+
+                        if col == 5 or col == 4:
+                            if tex == '':
+                                tex = 0
+                            else:
+                                tex = int(tablet.item(row, col).text().strip().replace(",", ""))
+                    except:
+                        tex = 0
+
+                    col_list.append(tex)
+
+                noi_dung_bao_gia.append(col_list)
+
+            sum8 = sum(int(ele[4]) * int(ele[5]) for ele in noi_dung_bao_gia if ele[1] != 'NhanCong' and ele[6] == '8')
+            sum10 = sum(int(ele[4]) * int(ele[5]) for ele in noi_dung_bao_gia if ele[1] != 'NhanCong' and ele[6] == '10')
+            sum0 = sum8 + sum10
+            try:
+                nc = sum(int(ele[4]) * int(ele[7]) for ele in noi_dung_bao_gia if ele[1] != 'NhanCong')
+            except:
+                nc = 0
+
+            if self.uic5.comboBox.currentText() in ['Giá thuê theo ngày', 'Giá thuê theo tháng', 'Giá thuê theo năm']:
+                nc = nc/2
+
+            tong_ca_thue = sum0 + sum8*0.08 + sum10*0.1 + nc
+
+            if not self.uic5.checkBox.isChecked():
+                for i in range(len(noi_dung_bao_gia)):
+                    if noi_dung_bao_gia[i][1] == 'NhanCong':
+                        noi_dung_bao_gia[i][4] = 1
+                        noi_dung_bao_gia[i][5] = nc
+
+            # Ghi kết quả lên SQL data
+            noi_dung = []
+            for row in noi_dung_bao_gia:
+                row.pop()
+                if row[0] != '':
+                    row = [str(item) for item in row]
+                    text = '|'.join(row)
+                    noi_dung.append(text)
+
+            noi_dung_bg = '@'.join(noi_dung)
+
+            lead_id = self.uic5.label_lead_id.text()
+            dienthoai = self.uic5.text_sdt.toPlainText()
+
+            if noi_dung_bao_gia is not None:
+
+                # Không ghi đè ngày báo giá khi chỉ sửa nội dung
+                query = """UPDATE ds_bao_gia SET lead_id = %s, noi_dung = %s, user = %s, dien_thoai = %s, sum8 = %s, sum10 = %s, sotien = %s, sum0 = %s, gia_nhap_tay = %s WHERE so_bg = %s"""
+                data = (
+                    lead_id, noi_dung_bg, self.user, dienthoai, sum8, sum10, tong_ca_thue, sum0, nhap_tay,
+                    so_bg)
+                misc.sql_commit(query, data)
+
+            if self.uic5.comboBox.currentText() in ['Giá thuê theo ngày', 'Giá thuê theo tháng', 'Giá thuê theo năm']:
+                tex = misc.save_excel(so_bg, self.user, self.user_phone, self.uic5.combo_cty.currentText(), thue='Thue')
+            else:
+                tex = misc.save_excel(so_bg, self.user, self.user_phone, self.uic5.combo_cty.currentText(), thue=None)
+
+            self.uic5.label_noti.setText(tex)
+
+            # try:
+            #     from misc import convert_excel_to_pdf
+            #     excel_path = r"C:\Users\Admin\Desktop\BG 2864 - Đức Mạnh - Thiết bị báo cháy FireSmart.xlsx"
+            #
+            #     pdf_file = convert_excel_to_pdf(excel_path)
+            #     print(f"✅ Đã xuất ra file PDF: {pdf_file}")
+            #
+            # except Exception as e:
+            #     print(f"❌ Error exporting to PDF: {e}")
+
+            # Update trạng thái lead theo rule mới
+            kq = misc.sql_one("SELECT * from sale_lead WHERE lead_id = %s", (lead_id, ))
+
+            if kq[10] in ['Đang xử lý', 'Đã giao việc từ Anna', 'Da giao viec tu Anna']:
+                # Khi sales sum/save báo giá đầu tiên cho lead do Anna giao -> chuyển sang Đã nhận việc
+                misc.sql_commit("UPDATE sale_lead SET status = 'Đã nhận việc' WHERE lead_id = %s", (lead_id,))
+                misc.sql_commit("UPDATE user SET check_busy = '0' WHERE full_name = %s", (self.user,))
+
+            text = self.user + ' tạo/sửa báo giá số ' + str(so_bg) + '.'
+            misc.send_to_telegram(text)
+
+    def download_1(self, file_id):
+        file_handle.download_file(file_id)
+
+    def save_quote_customer_info(self, lead_id, uic):
+        ten_cong_ty = (uic.text_ten_congty.toPlainText() or '').strip()
+        ten_khach = (uic.text_nguoi_lien_he.toPlainText() or '').strip()
+        sdt = (uic.text_sdt.toPlainText() or '').strip()
+        dia_chi = (uic.text_dia_chi.toPlainText() or '').strip()
+        mst = (uic.text_mst.toPlainText() or '').strip().replace(' ', '')
+        noidung = (uic.text_noi_dung.toPlainText() or '').strip()
+
+        if len(ten_khach) < 2:
+            uic.label_noti.setStyleSheet('color: red')
+            uic.label_noti.setText('Tên người liên hệ chưa hợp lệ.')
+            return
+
+        if sdt and (not sdt.isdigit() or len(sdt) not in [10, 11]):
+            uic.label_noti.setStyleSheet('color: red')
+            uic.label_noti.setText('SĐT chỉ gồm số và dài 10-11 ký tự.')
+            return
+
+        # 1) Luôn cập nhật lead
+        misc.sql_commit(
+            "UPDATE sale_lead SET company=%s, name=%s, sdt=%s, address=%s, mst=%s, ten_co_hoi=%s, yc=%s WHERE lead_id=%s",
+            (ten_cong_ty, ten_khach, sdt, dia_chi, mst, noidung, noidung, lead_id)
+        )
+
+        # 2) Đồng bộ CRM công ty (ds_cong_ty) theo MST để tránh lệch dữ liệu
+        crm_company_synced = False
+        if mst and re.match(r"^\d{10}(-\d{3})?$", mst):
+            try:
+                cty = misc.sql_one("SELECT * FROM ds_cong_ty WHERE mst = %s", (mst,))
+                if cty:
+                    misc.sql_commit(
+                        "UPDATE ds_cong_ty SET ten_cong_ty=%s, dia_chi=%s, nguoi_lien_he=%s, sdt_nguoi_lh=%s WHERE mst=%s",
+                        (ten_cong_ty, dia_chi, ten_khach, sdt, mst)
+                    )
+                else:
+                    misc.sql_commit(
+                        "INSERT INTO ds_cong_ty (ten_cong_ty, mst, dia_chi, nguoi_lien_he, sdt_nguoi_lh, dien_thoai_cong_ty) VALUES (%s, %s, %s, %s, %s, %s)",
+                        (ten_cong_ty, mst, dia_chi, ten_khach, sdt, sdt)
+                    )
+                crm_company_synced = True
+            except Exception as e:
+                print(f"CRM sync ds_cong_ty error: {e}")
+
+        # 3) Đồng bộ CRM cá nhân (ds_ca_nhan) theo số điện thoại
+        crm_contact_synced = False
+        if sdt and re.match(r"^0\d{9,10}$", sdt):
+            try:
+                cn = misc.sql_one("SELECT * FROM ds_ca_nhan WHERE dien_thoai = %s", (sdt,))
+                if cn:
+                    misc.sql_commit(
+                        "UPDATE ds_ca_nhan SET ten=%s, ten_cong_ty=%s, mst_cong_ty=%s WHERE dien_thoai=%s",
+                        (ten_khach, ten_cong_ty, mst, sdt)
+                    )
+                else:
+                    misc.sql_commit(
+                        "INSERT INTO ds_ca_nhan (ten, dien_thoai, ten_cong_ty, mst_cong_ty) VALUES (%s, %s, %s, %s)",
+                        (ten_khach, sdt, ten_cong_ty, mst)
+                    )
+                crm_contact_synced = True
+            except Exception as e:
+                print(f"CRM sync ds_ca_nhan error: {e}")
+
+        uic.label_noti.setStyleSheet('color: blue')
+        if crm_company_synced or crm_contact_synced:
+            uic.label_noti.setText('Đã lưu thông tin khách hàng vào lead + đồng bộ CRM.')
+        else:
+            uic.label_noti.setText('Đã lưu thông tin khách hàng vào lead (CRM chưa đồng bộ do thiếu MST/SĐT hợp lệ).')
+
+    def tao_don_hang_khong_co_bao_gia(self):
+        self.sub_win12 = QMainWindow()
+        self.uic12 = Ui_Win_bao_gia()
+        self.current_uic = self.uic12
+        self.uic12.setupUi(self.sub_win12)
+
+        self.sub_win12.show()
+        self.uic12.but_tao_don_hang.hide()
+        self.uic12.but_luu_file.hide()
+        self.uic12.but_save_thong_tin.clicked.connect(lambda: Quotato.save_thong_tin_khach_hang(self))
+
+    def save_thong_tin_khach_hang(self):
+        # Khi chạy tạo_đơn_hàng_không_có_báo_giá
+        ten_cong_ty = self.uic12.text_ten_congty.toPlainText() or ' '
+        dia_chi = self.uic12.text_dia_chi.toPlainText() or ' '
+        ten_khach = self.uic12.text_nguoi_lien_he.toPlainText() or ' '
+        mst = self.uic12.text_mst.toPlainText() or ' '
+        email = self.uic12.text_email.toPlainText() or ' '
+        sdt = self.uic12.text_sdt.toPlainText() or ' '
+        noidung = self.uic12.text_noi_dung.toPlainText() or ' '
+
+        if len(ten_khach) >= 4 and len(sdt.strip()) == 10 and len(noidung) >= 10:
+            max_id = misc.sql_one("SELECT MAX(lead_id) FROM sale_lead", None)[0]
+            lead_id = str(int(max_id) + 1)
+            time_create = datetime.now()
+            misc.sql_commit("INSERT INTO sale_lead SET lead_id = %s, name = %s, sdt = %s, address = %s, "
+                            "ten_co_hoi = %s, email = %s, yc = %s, time_create = %s, time_nhan_viec = %s, phu_trach = %s, nguoi_tao_lead = %s, status = 'Đã giao việc từ Anna', "
+                            "company = %s, mst = %s",
+                            (lead_id, ten_khach, sdt, dia_chi, noidung, email, noidung, time_create, time_create, self.user, self.user, ten_cong_ty, mst))
+            ttkh = [ten_cong_ty, ten_khach, sdt, lead_id, noidung, mst]
+
+            # [ten cong ty - ten khach hang - so dt - lead id - ten co hoi - mst]
+            data = misc.tao_bao_gia(ttkh, self.user)
+            so_bg = str(data[1])
+
+            self.uic12.label_lead_id.setText(lead_id)
+            self.uic12.label_so_bg.setText(so_bg)
+
+            Quotato.draft_bao_gia(self, self.uic12)
+
+            self.uic12.but_save_thong_tin.hide()
+            self.uic12.but_luu_file.clicked.connect(lambda: QuotationSaver.sum_save(self, so_bg, self.uic12))
+            self.uic12.but_luu_file.setEnabled(True)
+            self.uic12.but_luu_file.show()
+
+            self.uic12.but_tao_don_hang.clicked.connect(lambda: Quotato.tao_don_hang(self, so_bg, lead_id, self.uic12))
+
+            # Ghi lại thông tin khách hàng
+            lead_handle.LeadHandle.luu_thong_tin_kh(self, [ten_khach, sdt, ten_cong_ty, mst, self.user, lead_id, dia_chi])
+            # ttkh = [ten_khach, sdt, cong_ty, mst, phu_trach, lead_id, diachi]
+
+        else:
+            self.uic12.label_noti.setStyleSheet('color: red')
+            self.uic12.label_noti.setText("Cần nhập thông tin đầy đủ và chính xác!")
+
+    def draft_bao_gia(self, uic):
+        uic.tableWidget.clear()
+        uic.tableWidget.setRowCount(8)
+        uic.tableWidget.setColumnCount(7)
+        uic.tableWidget.setHorizontalHeaderLabels(
+            ['Mô tả sản phẩm', 'Model', 'Nhãn hiệu', 'ĐV tính', 'Số lượng', 'Đơn giá', 'Thuế']
+        )
+        widths = [300, 90, 90, 60, 80, 130, 90]
+        for i, w in enumerate(widths):
+            uic.tableWidget.setColumnWidth(i, w)
+
+        # Gắn sự kiện nhấp đúp để mở lại QLineEdit
+        uic.tableWidget.cellDoubleClicked.connect(lambda row, col: Quotato.handle_double_click(self, row, col, uic.tableWidget))
+
+        # Tạo danh sách gợi ý
+        if not hasattr(self, 'all_model'):
+            self.all_model = [row[0] for row in misc.sql_all("SELECT DISTINCT model FROM gia_tong_hop")]
+        if not hasattr(self, 'all_ten_sp'):
+            self.all_ten_sp = [row[0] for row in misc.sql_all("SELECT DISTINCT ten_san_pham FROM gia_tong_hop")]
+
+        for row in range(uic.tableWidget.rowCount()):
+            Quotato.add_autocomplete_editor(self, uic.tableWidget, row)
+        uic.tableWidget.repaint()
+
+    def tao_hop_dong(self):
+        company_name = self.uic5.text_ten_congty.toPlainText()
+        mst = self.uic5.text_mst.toPlainText()
+        gia_tri = self.uic5.label_showtongcong.text()
+        so_bg = self.uic5.label_so_bg.text()
+        if company_name and mst and gia_tri and so_bg:
+            Crm.view_detail_company(self, mst, so_bg=so_bg)
+        elif not mst:
+            self.uic5.label_noti.setStyleSheet('color: red')
+            self.uic5.label_noti.setText("❌ Cần nhập mã số thuế và thông tin công ty để khởi tạo hợp đồng!")
+        else:
+            self.uic5.label_noti.setText('❌ Lỗi khi khởi tạo hợp đồng từ màn hình Quotato!')
+            self.uic5.label_noti.setStyleSheet('color: red')
+

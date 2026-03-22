@@ -1,0 +1,406 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Report</class>
+ <widget class="QMainWindow" name="Report">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>974</width>
+    <height>654</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MainWindow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QLabel" name="label">
+    <property name="geometry">
+     <rect>
+      <x>696</x>
+      <y>45</y>
+      <width>271</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>16</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Báo cáo kết quả kinh doanh</string>
+    </property>
+   </widget>
+   <widget class="QDateEdit" name="date_from">
+    <property name="geometry">
+     <rect>
+      <x>27</x>
+      <y>100</y>
+      <width>110</width>
+      <height>25</height>
+     </rect>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignCenter</set>
+    </property>
+    <property name="dateTime">
+     <datetime>
+      <hour>0</hour>
+      <minute>0</minute>
+      <second>0</second>
+      <year>2024</year>
+      <month>9</month>
+      <day>1</day>
+     </datetime>
+    </property>
+    <property name="maximumDateTime">
+     <datetime>
+      <hour>23</hour>
+      <minute>59</minute>
+      <second>59</second>
+      <year>2026</year>
+      <month>12</month>
+      <day>31</day>
+     </datetime>
+    </property>
+    <property name="minimumDateTime">
+     <datetime>
+      <hour>0</hour>
+      <minute>0</minute>
+      <second>0</second>
+      <year>2024</year>
+      <month>5</month>
+      <day>16</day>
+     </datetime>
+    </property>
+    <property name="displayFormat">
+     <string>d/M/yyyy</string>
+    </property>
+    <property name="calendarPopup">
+     <bool>true</bool>
+    </property>
+    <property name="date">
+     <date>
+      <year>2024</year>
+      <month>9</month>
+      <day>1</day>
+     </date>
+    </property>
+   </widget>
+   <widget class="QDateEdit" name="date_to">
+    <property name="geometry">
+     <rect>
+      <x>187</x>
+      <y>100</y>
+      <width>110</width>
+      <height>25</height>
+     </rect>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignCenter</set>
+    </property>
+    <property name="dateTime">
+     <datetime>
+      <hour>0</hour>
+      <minute>0</minute>
+      <second>0</second>
+      <year>2025</year>
+      <month>1</month>
+      <day>20</day>
+     </datetime>
+    </property>
+    <property name="maximumDateTime">
+     <datetime>
+      <hour>23</hour>
+      <minute>59</minute>
+      <second>59</second>
+      <year>2026</year>
+      <month>12</month>
+      <day>31</day>
+     </datetime>
+    </property>
+    <property name="minimumDateTime">
+     <datetime>
+      <hour>0</hour>
+      <minute>0</minute>
+      <second>0</second>
+      <year>2024</year>
+      <month>5</month>
+      <day>16</day>
+     </datetime>
+    </property>
+    <property name="displayFormat">
+     <string>d/M/yyyy</string>
+    </property>
+    <property name="calendarPopup">
+     <bool>true</bool>
+    </property>
+    <property name="date">
+     <date>
+      <year>2025</year>
+      <month>1</month>
+      <day>20</day>
+     </date>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_2">
+    <property name="geometry">
+     <rect>
+      <x>149</x>
+      <y>93</y>
+      <width>41</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>12</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>đến</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_user">
+    <property name="geometry">
+     <rect>
+      <x>870</x>
+      <y>10</y>
+      <width>91</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <italic>true</italic>
+     </font>
+    </property>
+    <property name="text">
+     <string>Phí Ngọc Tùng</string>
+    </property>
+   </widget>
+   <widget class="QTabWidget" name="tabWidget">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>160</y>
+      <width>951</width>
+      <height>491</height>
+     </rect>
+    </property>
+    <property name="currentIndex">
+     <number>2</number>
+    </property>
+    <widget class="QWidget" name="tab">
+     <attribute name="title">
+      <string>Doanh số</string>
+     </attribute>
+     <widget class="QTableWidget" name="tableWidget">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>951</width>
+        <height>461</height>
+       </rect>
+      </property>
+     </widget>
+    </widget>
+    <widget class="QWidget" name="tab_2">
+     <attribute name="title">
+      <string>Bonus</string>
+     </attribute>
+     <widget class="QTableWidget" name="tableWidget_2">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>1061</width>
+        <height>461</height>
+       </rect>
+      </property>
+     </widget>
+    </widget>
+    <widget class="QWidget" name="tab_3">
+     <attribute name="title">
+      <string>Công nợ</string>
+     </attribute>
+     <widget class="QTableWidget" name="tableWidget_3">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>1</y>
+        <width>951</width>
+        <height>461</height>
+       </rect>
+      </property>
+     </widget>
+    </widget>
+   </widget>
+   <widget class="QComboBox" name="comboBox">
+    <property name="geometry">
+     <rect>
+      <x>60</x>
+      <y>70</y>
+      <width>211</width>
+      <height>25</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QGroupBox" name="groupBox">
+    <property name="geometry">
+     <rect>
+      <x>318</x>
+      <y>70</y>
+      <width>641</width>
+      <height>101</height>
+     </rect>
+    </property>
+    <property name="title">
+     <string>KPI</string>
+    </property>
+    <widget class="QCommandLinkButton" name="clb_don_lead">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>20</y>
+       <width>161</width>
+       <height>31</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Đơn/Lead:</string>
+     </property>
+    </widget>
+    <widget class="QCommandLinkButton" name="commandLinkButton_2">
+     <property name="geometry">
+      <rect>
+       <x>310</x>
+       <y>100</y>
+       <width>185</width>
+       <height>41</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Báo giá:</string>
+     </property>
+    </widget>
+    <widget class="QCommandLinkButton" name="clb_ti_le_thanh_cong">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>60</y>
+       <width>161</width>
+       <height>31</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Thành công:</string>
+     </property>
+    </widget>
+    <widget class="QCommandLinkButton" name="clb_doanh_so">
+     <property name="geometry">
+      <rect>
+       <x>240</x>
+       <y>20</y>
+       <width>185</width>
+       <height>31</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Doanh số:</string>
+     </property>
+    </widget>
+    <widget class="QCommandLinkButton" name="clb_phai_thu">
+     <property name="geometry">
+      <rect>
+       <x>240</x>
+       <y>60</y>
+       <width>185</width>
+       <height>31</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Phải thu:</string>
+     </property>
+    </widget>
+    <widget class="QCommandLinkButton" name="clb_bonus">
+     <property name="geometry">
+      <rect>
+       <x>450</x>
+       <y>20</y>
+       <width>185</width>
+       <height>31</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Bonus:</string>
+     </property>
+    </widget>
+    <widget class="QCommandLinkButton" name="clb_profit">
+     <property name="geometry">
+      <rect>
+       <x>450</x>
+       <y>60</y>
+       <width>185</width>
+       <height>31</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Profit:</string>
+     </property>
+    </widget>
+   </widget>
+   <widget class="QPushButton" name="pushButton">
+    <property name="geometry">
+     <rect>
+      <x>94</x>
+      <y>126</y>
+      <width>121</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Xem thông tin</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_noti">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>13</y>
+      <width>781</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>12</pointsize>
+      <italic>true</italic>
+      <bold>true</bold>
+      <kerning>false</kerning>
+     </font>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_chat">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>10</y>
+      <width>75</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Chat AI</string>
+    </property>
+   </widget>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

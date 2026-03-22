@@ -1,0 +1,485 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>NhapKho</class>
+ <widget class="QMainWindow" name="NhapKho">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>804</width>
+    <height>692</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MainWindow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QLabel" name="label_user">
+    <property name="geometry">
+     <rect>
+      <x>683</x>
+      <y>5</y>
+      <width>111</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>10</pointsize>
+      <italic>true</italic>
+     </font>
+    </property>
+    <property name="text">
+     <string>Username</string>
+    </property>
+   </widget>
+   <widget class="QDateEdit" name="dateEdit">
+    <property name="geometry">
+     <rect>
+      <x>520</x>
+      <y>4</y>
+      <width>110</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="dateTime">
+     <datetime>
+      <hour>0</hour>
+      <minute>0</minute>
+      <second>0</second>
+      <year>2024</year>
+      <month>5</month>
+      <day>29</day>
+     </datetime>
+    </property>
+    <property name="maximumDateTime">
+     <datetime>
+      <hour>23</hour>
+      <minute>59</minute>
+      <second>59</second>
+      <year>2026</year>
+      <month>12</month>
+      <day>31</day>
+     </datetime>
+    </property>
+    <property name="minimumDateTime">
+     <datetime>
+      <hour>0</hour>
+      <minute>0</minute>
+      <second>0</second>
+      <year>2024</year>
+      <month>5</month>
+      <day>14</day>
+     </datetime>
+    </property>
+    <property name="minimumDate">
+     <date>
+      <year>2024</year>
+      <month>5</month>
+      <day>14</day>
+     </date>
+    </property>
+    <property name="displayFormat">
+     <string>d/M/yyyy</string>
+    </property>
+    <property name="calendarPopup">
+     <bool>true</bool>
+    </property>
+    <property name="date">
+     <date>
+      <year>2024</year>
+      <month>5</month>
+      <day>29</day>
+     </date>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>20</y>
+      <width>251</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>18</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>Phiếu nhập kho</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_noti">
+    <property name="geometry">
+     <rect>
+      <x>80</x>
+      <y>160</y>
+      <width>711</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>11</pointsize>
+      <italic>true</italic>
+      <bold>true</bold>
+     </font>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_xoadong">
+    <property name="geometry">
+     <rect>
+      <x>661</x>
+      <y>660</y>
+      <width>90</width>
+      <height>30</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Xóa dòng</string>
+    </property>
+   </widget>
+   <widget class="QTableWidget" name="tableWidget">
+    <property name="geometry">
+     <rect>
+      <x>11</x>
+      <y>278</y>
+      <width>781</width>
+      <height>381</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_themdong">
+    <property name="geometry">
+     <rect>
+      <x>551</x>
+      <y>660</y>
+      <width>90</width>
+      <height>30</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Thêm dòng</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_load_gia">
+    <property name="geometry">
+     <rect>
+      <x>600</x>
+      <y>230</y>
+      <width>101</width>
+      <height>30</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Load đơn giá</string>
+    </property>
+   </widget>
+   <widget class="QGroupBox" name="group_timkiem">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>67</y>
+      <width>785</width>
+      <height>91</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">background-color: rgb(224, 235, 234);</string>
+    </property>
+    <property name="title">
+     <string/>
+    </property>
+    <widget class="QPushButton" name="but_tonkho">
+     <property name="geometry">
+      <rect>
+       <x>650</x>
+       <y>10</y>
+       <width>128</width>
+       <height>32</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Xem tồn kho</string>
+     </property>
+    </widget>
+    <widget class="QTextEdit" name="textEdit">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>10</y>
+       <width>401</width>
+       <height>31</height>
+      </rect>
+     </property>
+     <property name="placeholderText">
+      <string>Tìm kiếm </string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="but_huy_phieu_NHAP">
+     <property name="geometry">
+      <rect>
+       <x>430</x>
+       <y>53</y>
+       <width>90</width>
+       <height>32</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>HỦY BỎ</string>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="combo_kho">
+     <property name="geometry">
+      <rect>
+       <x>430</x>
+       <y>10</y>
+       <width>201</width>
+       <height>31</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="but_phieumoi">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>52</y>
+       <width>201</width>
+       <height>32</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>TẠO MỚI PHIẾU NHẬP KHO</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="but_tonkho_2">
+     <property name="geometry">
+      <rect>
+       <x>740</x>
+       <y>90</y>
+       <width>128</width>
+       <height>32</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Xem tồn kho</string>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="combo_sophieu">
+     <property name="geometry">
+      <rect>
+       <x>254</x>
+       <y>53</y>
+       <width>51</width>
+       <height>31</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_so_phieu">
+     <property name="geometry">
+      <rect>
+       <x>232</x>
+       <y>53</y>
+       <width>31</width>
+       <height>31</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>12</pointsize>
+      </font>
+     </property>
+     <property name="text">
+      <string>số</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="but_save_phieu_NHAP">
+     <property name="geometry">
+      <rect>
+       <x>540</x>
+       <y>53</y>
+       <width>90</width>
+       <height>32</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton#but_save_phieu_NHAP {
+	color: rgb(0, 0, 0);
+    border: 1px solid black;
+    background-color: rgb(230, 255, 245);
+
+}
+
+QPushButton#but_save_phieu_NHAP:hover {
+    background-color: rgb(255, 234, 235);
+}
+
+QPushButton#but_save_phieu_NHAP:pressed {			
+    padding-left: 2px;
+    padding-top: 2px;
+}
+</string>
+     </property>
+     <property name="text">
+      <string>SAVE</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="but_save_NHAP_tu_p_xuat">
+     <property name="geometry">
+      <rect>
+       <x>540</x>
+       <y>53</y>
+       <width>90</width>
+       <height>32</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton#but_save_NHAP_tu_p_xuat {
+	color: rgb(0, 0, 0);
+    border: 1px solid black;
+    background-color: rgb(230, 255, 245);
+
+}
+
+QPushButton#but_save_NHAP_tu_p_xuat:hover {
+    background-color: rgb(255, 234, 235);
+}
+
+QPushButton#but_save_NHAP_tu_p_xuat:pressed {			
+    padding-left: 2px;
+    padding-top: 2px;
+}
+</string>
+     </property>
+     <property name="text">
+      <string>SAVE</string>
+     </property>
+    </widget>
+    <zorder>but_tonkho</zorder>
+    <zorder>textEdit</zorder>
+    <zorder>but_huy_phieu_NHAP</zorder>
+    <zorder>combo_kho</zorder>
+    <zorder>but_phieumoi</zorder>
+    <zorder>but_tonkho_2</zorder>
+    <zorder>label_so_phieu</zorder>
+    <zorder>combo_sophieu</zorder>
+    <zorder>but_save_phieu_NHAP</zorder>
+    <zorder>but_save_NHAP_tu_p_xuat</zorder>
+   </widget>
+   <widget class="QPushButton" name="but_sp_moi">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>120</y>
+      <width>128</width>
+      <height>32</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Thêm sản phẩm MỚI</string>
+    </property>
+   </widget>
+   <widget class="QCheckBox" name="checkBox">
+    <property name="geometry">
+     <rect>
+      <x>40</x>
+      <y>190</y>
+      <width>161</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Nhập lại từ phiếu xuất số</string>
+    </property>
+   </widget>
+   <widget class="QComboBox" name="combo_so_px">
+    <property name="enabled">
+     <bool>false</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>200</x>
+      <y>183</y>
+      <width>51</width>
+      <height>31</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_thong_tin">
+    <property name="geometry">
+     <rect>
+      <x>260</x>
+      <y>193</y>
+      <width>531</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="text_nguyen_nhan">
+    <property name="geometry">
+     <rect>
+      <x>40</x>
+      <y>220</y>
+      <width>451</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="placeholderText">
+     <string>Ghi chú nguyên nhân phải nhập lại hàng theo phiếu xuất</string>
+    </property>
+   </widget>
+   <widget class="QCheckBox" name="check_bao_hanh">
+    <property name="geometry">
+     <rect>
+      <x>510</x>
+      <y>220</y>
+      <width>251</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Nhập lại để bảo hành sửa chữa</string>
+    </property>
+   </widget>
+   <widget class="QCheckBox" name="check_tra_lai">
+    <property name="geometry">
+     <rect>
+      <x>510</x>
+      <y>246</y>
+      <width>251</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Khách trả lại hàng - không mua nữa</string>
+    </property>
+   </widget>
+   <zorder>group_timkiem</zorder>
+   <zorder>label_user</zorder>
+   <zorder>dateEdit</zorder>
+   <zorder>label</zorder>
+   <zorder>label_noti</zorder>
+   <zorder>tableWidget</zorder>
+   <zorder>but_themdong</zorder>
+   <zorder>but_load_gia</zorder>
+   <zorder>but_xoadong</zorder>
+   <zorder>but_sp_moi</zorder>
+   <zorder>checkBox</zorder>
+   <zorder>combo_so_px</zorder>
+   <zorder>label_thong_tin</zorder>
+   <zorder>text_nguyen_nhan</zorder>
+   <zorder>check_bao_hanh</zorder>
+   <zorder>check_tra_lai</zorder>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
