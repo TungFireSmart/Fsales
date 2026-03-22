@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+build/
+dist/
+installer/
+*.spec
+*.pkg
+*.exe
+*.rar
+
+# Runtime/generated
+logs/
+*.log
+_temp/
+_trash_*/
+hop_dong_out/
+
+# Secrets / local credentials
+token_drive.pickle
+google_drive_credential.json
+login.txt
+**/login.txt
+**/token_drive.pickle
+**/google_drive_credential.json
+uploaded_file_ids.txt
+fsales_chat_history.json
+
+# Local exported files
+downloaded_file.xlsx
+PXK-*.xlsx
