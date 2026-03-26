@@ -62,7 +62,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.uic = Ui_MainWindow()
         self.uic.setupUi(self)
-        self.app_version = '3.0.3'
+        self.app_version = '3.0.4'
         self.setWindowTitle(QApplication.translate("MainWindow", f"Fsale v{self.app_version}"))
         apply_ui_v2(self)
         self._set_version_label()
@@ -141,9 +141,13 @@ class MainWindow(QMainWindow):
         updater = AutoUpdater(str(app_dir), self.app_version)
         self.setEnabled(False)
         QApplication.processEvents()
-        installer = updater.download_installer(info['installer_url'])
-        updater.launch_installer(installer)
-        QApplication.quit()
+        try:
+            installer = updater.download_installer(info['installer_url'])
+            updater.launch_installer(installer)
+            QApplication.quit()
+        except Exception as e:
+            self.setEnabled(True)
+            QMessageBox.warning(self, 'Cập nhật FSales', f'Không thể chạy bộ cài cập nhật: {e}')
 
     def check_update_manual(self):
         try:

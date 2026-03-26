@@ -5,6 +5,9 @@ import tempfile
 import urllib.request
 from urllib.error import URLError, HTTPError
 
+CREATE_NO_WINDOW = 0x08000000
+DETACHED_PROCESS = 0x00000008
+
 
 def _parse_version(v: str):
     parts = []
@@ -95,6 +98,10 @@ class AutoUpdater:
         return path
 
     def launch_installer(self, installer_path: str):
-        # Run installer after a short delay so current app can close cleanly first.
-        cmd = f'cmd /c "timeout /t 2 /nobreak >nul && start "" "{installer_path}""'
-        subprocess.Popen(cmd, shell=True)
+        """Launch installer reliably on Windows without shell-quote pitfalls."""
+        if not installer_path or not os.path.exists(installer_path):
+            raise FileNotFoundError(f'Installer not found: {installer_path}')
+
+        # Start detached so current app can exit immediately.
+        creationflags = DETACHED_PROCESS | CREATE_NO_WINDOW
+        subprocess.Popen([installer_path], close_fds=True, creationflags=creationflags)
