@@ -62,7 +62,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.uic = Ui_MainWindow()
         self.uic.setupUi(self)
-        self.app_version = '3.0.1'
+        self.app_version = '3.0.2'
         self.setWindowTitle(QApplication.translate("MainWindow", f"Fsale v{self.app_version}"))
         apply_ui_v2(self)
         self._set_version_label()
@@ -73,6 +73,16 @@ class MainWindow(QMainWindow):
         self.checkLogin = 0
         self._login_lock = False
         check_saved_login(self)
+
+        # Nút cập nhật thủ công (hiện sau đăng nhập)
+        self.but_check_update = QPushButton('Kiểm tra cập nhật', self.uic.centralwidget)
+        self.but_check_update.setGeometry(800, 510, 145, 31)
+        self.but_check_update.setVisible(False)
+        self.but_force_update = QPushButton('Cập nhật ngay', self.uic.centralwidget)
+        self.but_force_update.setGeometry(800, 545, 145, 31)
+        self.but_force_update.setVisible(False)
+        self.but_check_update.clicked.connect(self.check_update_manual)
+        self.but_force_update.clicked.connect(self.force_update_now)
 
         self.uic.text_user.textChanged.connect(self.login)
         self.uic.text_password.textChanged.connect(self.login)
@@ -126,6 +136,45 @@ class MainWindow(QMainWindow):
         self.ai_chat = AIChatWindow(self, self.user_power)
         self.ai_chat.show()
 
+    def _run_update(self, info: dict):
+        app_dir = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+        updater = AutoUpdater(str(app_dir), self.app_version)
+        self.setEnabled(False)
+        QApplication.processEvents()
+        installer = updater.download_installer(info['installer_url'])
+        updater.launch_installer(installer)
+        QApplication.quit()
+
+    def check_update_manual(self):
+        try:
+            app_dir = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+            updater = AutoUpdater(str(app_dir), self.app_version)
+            info = updater.check()
+            if not info:
+                QMessageBox.information(self, 'Cập nhật FSales', f'Bạn đang ở phiên bản mới nhất ({self.app_version}).')
+                return
+            msg = f"Đã có phiên bản mới {info['version']} (hiện tại {self.app_version}).\n\nBạn có muốn cập nhật ngay không?"
+            answer = QMessageBox.question(self, 'Cập nhật FSales', msg)
+            if answer == QMessageBox.StandardButton.Yes:
+                self._run_update(info)
+        except Exception as e:
+            QMessageBox.warning(self, 'Cập nhật FSales', f'Không thể kiểm tra cập nhật: {e}')
+
+    def force_update_now(self):
+        try:
+            app_dir = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+            updater = AutoUpdater(str(app_dir), self.app_version)
+            info = updater.get_manifest_info()
+            if not info:
+                QMessageBox.warning(self, 'Cập nhật FSales', 'Không tải được manifest cập nhật.')
+                return
+            msg = f"Cưỡng bức cập nhật theo manifest hiện tại ({info['version']}).\n\nTiếp tục?"
+            answer = QMessageBox.question(self, 'Cập nhật FSales', msg)
+            if answer == QMessageBox.StandardButton.Yes:
+                self._run_update(info)
+        except Exception as e:
+            QMessageBox.warning(self, 'Cập nhật FSales', f'Cập nhật cưỡng bức thất bại: {e}')
+
     def check_auto_update(self):
         try:
             app_dir = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
@@ -140,12 +189,7 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
 
-            self.setEnabled(False)
-            QApplication.processEvents()
-            installer = updater.download_installer(info['installer_url'])
-            # Schedule installer launch, then close app immediately.
-            updater.launch_installer(installer)
-            QApplication.quit()
+            self._run_update(info)
         except Exception as e:
             # silent-safe: avoid interrupting sales workflow
             print(f'Auto update check skipped: {e}')
@@ -164,6 +208,8 @@ class MainWindow(QMainWindow):
         self.uic.text_user.textChanged.connect(self.login)
         self.uic.text_password.textChanged.connect(self.login)
         self.uic.but_logout.setEnabled(False)
+        self.but_check_update.setVisible(False)
+        self.but_force_update.setVisible(False)
 
     def post_login_setup(self):
         self.uic.text_user.hide()
@@ -177,8 +223,13 @@ class MainWindow(QMainWindow):
         result = misc.sql_one("SELECT * from user where phone_number = %s", (self.user_phone,))
         self.user_power = int(result[3])
 
-        # Phân quyền CRM: chỉ cho phép power >= 40
-        self.uic.but_crm.setEnabled(self.user_power >= 40)
+        # Phân quyền CRM: chỉ hiển thị khi power > 40
+        self.uic.but_crm.setVisible(self.user_power > 40)
+        self.uic.but_crm.setEnabled(self.user_power > 40)
+
+        # Nút update thủ công chỉ hiện sau khi đăng nhập
+        self.but_check_update.setVisible(True)
+        self.but_force_update.setVisible(True)
 
         if self.user_power > 40:
             self.uic.but_sua_bang_gia.setEnabled(True)
@@ -208,12 +259,12 @@ class MainWindow(QMainWindow):
         self.price_manager = PriceListManager(self.uic6, self.user)
         self.uic.but_sua_bang_gia.clicked.connect(self.sua_bang_gia)
 
-        # Quản lý khách hàng (chỉ user power >= 40)
+        # Quản lý khách hàng (chỉ user power > 40)
         try:
             self.uic.but_crm.clicked.disconnect()
         except Exception:
             pass
-        if self.user_power >= 40:
+        if self.user_power > 40:
             self.crm_handler = crm.Crm(self)
             self.crm_handler.user = self.user
             self.crm_handler.user_phone = self.user_phone
@@ -641,6 +692,10 @@ class MainWindow(QMainWindow):
             ]:
                 if hasattr(self.uic, n):
                     getattr(self.uic, n).setEnabled(not locked)
+            if hasattr(self, 'but_check_update'):
+                self.but_check_update.setEnabled(not locked)
+            if hasattr(self, 'but_force_update'):
+                self.but_force_update.setEnabled(not locked)
             if locked:
                 self.uic.label_noti.setStyleSheet("color: #2563EB")
                 self.uic.label_noti.setText(text or "Loading ... ... ...")

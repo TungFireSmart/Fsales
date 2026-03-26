@@ -49,7 +49,7 @@ class AutoUpdater:
             data = resp.read().decode('utf-8-sig', errors='ignore')
         return json.loads(data)
 
-    def check(self):
+    def get_manifest_info(self):
         cfg = self._load_config()
         if not cfg:
             return None
@@ -72,14 +72,19 @@ class AutoUpdater:
         if not remote_version or not installer_url:
             return None
 
-        if not is_newer(remote_version, self.current_version):
-            return None
-
         return {
             'version': remote_version,
             'installer_url': installer_url,
             'notes': notes,
         }
+
+    def check(self):
+        info = self.get_manifest_info()
+        if not info:
+            return None
+        if not is_newer(info['version'], self.current_version):
+            return None
+        return info
 
     def download_installer(self, installer_url: str):
         fd, path = tempfile.mkstemp(prefix='fsales-update-', suffix='.exe')
