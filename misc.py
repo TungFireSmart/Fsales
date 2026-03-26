@@ -180,14 +180,19 @@ def save_excel(so_bg, user, phone, cty, thue=None):
 
     # Step 3: Select template
     if thue == 'Thue':
-        workbook = openpyxl.load_workbook('Bao_gia_thue.xlsx')
+        template_path = get_resource_path('bao_gia_thue.xlsx')
     else:
         if cty == 'BG PCCC.vn':
-            workbook = openpyxl.load_workbook('bao_gia_mau.xlsx')
+            template_path = get_resource_path('bao_gia_mau.xlsx')
         elif cty == 'BG Infutech':
-            workbook = openpyxl.load_workbook('bao_gia_mau_infutech.xlsx')
+            template_path = get_resource_path('bao_gia_mau_infutech.xlsx')
         else:
-            workbook = openpyxl.load_workbook('bao_gia_mau_bach_khoa.xlsx')
+            template_path = get_resource_path('bao_gia_mau_bach_khoa.xlsx')
+
+    if not os.path.exists(template_path):
+        return f"Không tìm thấy file mẫu báo giá: {template_path}"
+
+    workbook = openpyxl.load_workbook(template_path)
 
     sheet = workbook['Quotation']
     #insert_logo_by_company(sheet, cty)

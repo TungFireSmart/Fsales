@@ -28,6 +28,12 @@ a = Analysis(
         ("assets/logo_bach_khoa.png", "assets"),
         ("styles/app.qss", "styles"),
         ("update_config.json", "."),
+
+        # === EXCEL QUOTE TEMPLATES ===
+        ("bao_gia_mau.xlsx", "."),
+        ("bao_gia_mau_infutech.xlsx", "."),
+        ("bao_gia_mau_bach_khoa.xlsx", "."),
+        ("bao_gia_thue.xlsx", "."),
     ],
     hiddenimports=hidden_imports,
     hookspath=[],
