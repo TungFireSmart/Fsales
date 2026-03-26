@@ -244,12 +244,12 @@ QPushButton#but_tao_co_hoi:pressed {
      </rect>
     </property>
    </widget>
-   <widget class="QLabel" name="label_profit">
+   <widget class="QLabel" name="label_version">
     <property name="geometry">
      <rect>
-      <x>566</x>
-      <y>40</y>
-      <width>381</width>
+      <x>820</x>
+      <y>580</y>
+      <width>121</width>
       <height>31</height>
      </rect>
     </property>
@@ -349,7 +349,7 @@ border-color: rgb(230, 255, 245);</string>
      </rect>
     </property>
     <property name="text">
-     <string>Kết quả kinh doanh</string>
+     <string>Reports</string>
     </property>
    </widget>
    <widget class="QLabel" name="label">
@@ -366,19 +366,6 @@ border-color: rgb(230, 255, 245);</string>
     </property>
     <property name="text">
      <string/>
-    </property>
-   </widget>
-   <widget class="QToolButton" name="but_tao_don_hang">
-    <property name="geometry">
-     <rect>
-      <x>820</x>
-      <y>340</y>
-      <width>115</width>
-      <height>31</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Tạo đơn hàng</string>
     </property>
    </widget>
    <widget class="QTextEdit" name="tex_search">
@@ -401,10 +388,10 @@ border-color: rgb(0, 170, 0);</string>
    <widget class="QPushButton" name="but_chat">
     <property name="geometry">
      <rect>
-      <x>834</x>
-      <y>590</y>
-      <width>91</width>
-      <height>24</height>
+      <x>814</x>
+      <y>550</y>
+      <width>131</width>
+      <height>31</height>
      </rect>
     </property>
     <property name="text">

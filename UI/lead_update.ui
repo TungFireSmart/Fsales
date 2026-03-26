@@ -141,7 +141,7 @@
      <string>Tên công ty khách hàng</string>
     </property>
    </widget>
-   <widget class="QTextEdit" name="txt_yeu_cau">
+   <widget class="QTextBrowser" name="txt_file">
     <property name="geometry">
      <rect>
       <x>30</x>
@@ -331,7 +331,7 @@ background-color: rgb(255, 213, 211);</string>
      <string>Địa chỉ của khách hàng</string>
     </property>
    </widget>
-   <widget class="QTextBrowser" name="txt_file">
+   <widget class="QTextBrowser" name="txt_yeu_cau">
     <property name="geometry">
      <rect>
       <x>30</x>

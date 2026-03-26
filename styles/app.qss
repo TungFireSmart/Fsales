@@ -1,0 +1,151 @@
+/* FSales UI facelift v1 */
+
+QWidget {
+  font-family: "Segoe UI", "Inter", Arial;
+  font-size: 13px;
+  color: #1f2937;
+}
+
+QMainWindow, QDialog {
+  background: #f6f8fb;
+}
+
+QLabel {
+  color: #374151;
+}
+
+QLineEdit, QTextEdit, QPlainTextEdit, QDateEdit, QComboBox, QSpinBox {
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 3px 8px;
+  min-height: 18px;
+  selection-background-color: #2563eb;
+}
+
+QComboBox QAbstractItemView {
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  selection-background-color: #dbeafe;
+  selection-color: #1e3a8a;
+  outline: 0;
+}
+
+QComboBox QAbstractItemView::item {
+  min-height: 20px;
+}
+
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QDateEdit:focus, QComboBox:focus {
+  border: 1px solid #2563eb;
+}
+
+QPushButton {
+  background: #e5e7eb;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: #111827;
+}
+
+QPushButton:hover {
+  background: #dbe3ef;
+}
+
+QPushButton:pressed {
+  background: #cfd8e3;
+}
+
+QPushButton:disabled {
+  color: #9ca3af;
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+}
+
+/* Primary buttons by objectName hints */
+QPushButton#but_save, QPushButton#but_update, QPushButton#but_tao_lead, QPushButton#but_tao_moi,
+QPushButton#but_tao_hop_dong, QPushButton#but_tao_don_hang, QPushButton#but_tao_co_hoi,
+QPushButton#but_co_hoi_moi, QPushButton#but_gui_bao_gia {
+  background: #2563eb;
+  color: white;
+  border: 1px solid #1d4ed8;
+}
+
+QPushButton#but_save:hover, QPushButton#but_update:hover, QPushButton#but_tao_lead:hover,
+QPushButton#but_tao_moi:hover, QPushButton#but_tao_hop_dong:hover, QPushButton#but_tao_don_hang:hover,
+QPushButton#but_tao_co_hoi:hover, QPushButton#but_co_hoi_moi:hover, QPushButton#but_gui_bao_gia:hover {
+  background: #1d4ed8;
+}
+
+QTableWidget, QTableView {
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  gridline-color: #eef2f7;
+  alternate-background-color: #f9fbff;
+  selection-background-color: #dbeafe;
+  selection-color: #1e3a8a;
+}
+
+/* Main screen lead table: explicit zebra for easier row separation */
+QTableWidget#tableWidget {
+  background: #ffffff;
+  alternate-background-color: #eef4ff;
+}
+
+QHeaderView::section {
+  background: #eef2ff;
+  color: #1f2937;
+  border: none;
+  border-bottom: 1px solid #d1d5db;
+  padding: 8px;
+  font-weight: 600;
+}
+
+QTabWidget::pane {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: white;
+}
+
+QTabBar::tab {
+  background: #e5e7eb;
+  border: 1px solid #d1d5db;
+  border-bottom: none;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  padding: 6px 12px;
+  margin-right: 4px;
+}
+
+QTabBar::tab:selected {
+  background: white;
+  color: #1d4ed8;
+}
+
+QStatusBar {
+  background: #f9fafb;
+}
+
+QGroupBox {
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+QGroupBox::title {
+  subcontrol-origin: margin;
+  left: 10px;
+  padding: 0 4px;
+  color: #1f2937;
+  font-weight: 600;
+}
+
+QLabel#label_noti, QLabel#label_noti_2, QLabel#label_noti_3 {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  border-radius: 6px;
+  padding: 4px 8px;
+}

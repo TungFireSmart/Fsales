@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SupplierDetailWindow</class>
+ <widget class="QMainWindow" name="SupplierDetailWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1000</width>
+    <height>720</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Chi tiết nhà cung cấp</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QLabel" name="label_products">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>220</y>
+      <width>121</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Danh mục hàng hóa</string>
+    </property>
+   </widget>
+   <widget class="QTableWidget" name="table_products">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>240</y>
+      <width>982</width>
+      <height>451</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QWidget" name="layoutWidget">
+    <property name="geometry">
+     <rect>
+      <x>14</x>
+      <y>180</y>
+      <width>961</width>
+      <height>26</height>
+     </rect>
+    </property>
+    <layout class="QHBoxLayout" name="horizontalLayoutButtons">
+     <item>
+      <widget class="QPushButton" name="but_add_item">
+       <property name="text">
+        <string>Thêm/Cập nhật mã hàng</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="but_reload_item">
+       <property name="text">
+        <string>Làm mới mã hàng</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="but_upload_quote">
+       <property name="text">
+        <string>Lịch sử báo giá</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer">
+       <property name="orientation">
+        <enum>Qt::Vertical</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="but_save">
+       <property name="text">
+        <string>Lưu thông tin NCC</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+   <widget class="QLineEdit" name="txt_notes">
+    <property name="geometry">
+     <rect>
+      <x>770</x>
+      <y>40</y>
+      <width>211</width>
+      <height>121</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="txt_status">
+    <property name="geometry">
+     <rect>
+      <x>360</x>
+      <y>112</y>
+      <width>151</width>
+      <height>22</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_notes">
+    <property name="geometry">
+     <rect>
+      <x>800</x>
+      <y>20</y>
+      <width>61</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Ghi chú</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_address">
+    <property name="geometry">
+     <rect>
+      <x>13</x>
+      <y>48</y>
+      <width>36</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Địa chỉ</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_tax">
+    <property name="geometry">
+     <rect>
+      <x>560</x>
+      <y>30</y>
+      <width>51</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>MST</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="txt_province">
+    <property name="geometry">
+     <rect>
+      <x>610</x>
+      <y>52</y>
+      <width>133</width>
+      <height>22</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_group">
+    <property name="geometry">
+     <rect>
+      <x>13</x>
+      <y>112</y>
+      <width>62</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Nhóm NCC</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="txt_address">
+    <property name="geometry">
+     <rect>
+      <x>87</x>
+      <y>48</y>
+      <width>441</width>
+      <height>22</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_province">
+    <property name="geometry">
+     <rect>
+      <x>560</x>
+      <y>52</y>
+      <width>81</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Tỉnh/Tp.</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_status">
+    <property name="geometry">
+     <rect>
+      <x>290</x>
+      <y>115</y>
+      <width>52</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Trạng thái</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="txt_group">
+    <property name="geometry">
+     <rect>
+      <x>89</x>
+      <y>112</y>
+      <width>181</width>
+      <height>22</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="txt_email">
+    <property name="geometry">
+     <rect>
+      <x>570</x>
+      <y>79</y>
+      <width>171</width>
+      <height>22</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_phone">
+    <property name="geometry">
+     <rect>
+      <x>290</x>
+      <y>82</y>
+      <width>31</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>SĐT</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="txt_phone">
+    <property name="geometry">
+     <rect>
+      <x>330</x>
+      <y>79</y>
+      <width>181</width>
+      <height>22</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_email">
+    <property name="geometry">
+     <rect>
+      <x>530</x>
+      <y>82</y>
+      <width>41</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Email</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_name">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>27</y>
+      <width>46</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Tên NCC</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="txt_contact">
+    <property name="geometry">
+     <rect>
+      <x>87</x>
+      <y>77</y>
+      <width>181</width>
+      <height>22</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_contact">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>80</y>
+      <width>71</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Liên hệ</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="txt_tax">
+    <property name="geometry">
+     <rect>
+      <x>610</x>
+      <y>25</y>
+      <width>133</width>
+      <height>22</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="txt_name">
+    <property name="geometry">
+     <rect>
+      <x>87</x>
+      <y>22</y>
+      <width>441</width>
+      <height>22</height>
+     </rect>
+    </property>
+   </widget>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

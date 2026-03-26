@@ -36,7 +36,11 @@ class AIChatWindow(QMainWindow):
 
     def _load_history(self):
         self.ui.textEdit.clear()
-        rows = fetch_openclaw_history(self._user_name, limit=50)
+        try:
+            rows = fetch_openclaw_history(self._user_name, limit=50)
+        except Exception as e:
+            self.ui.textEdit.append(f"⚠️ Bridge chưa sẵn sàng ({e}). Anna vẫn có thể trả lời khi anh/chị gửi câu hỏi mới.")
+            return
 
         if not rows:
             self.ui.textEdit.append("🌿 Anna sẵn sàng. Anh/chị cứ đặt câu hỏi.")

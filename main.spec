@@ -14,6 +14,8 @@ hidden_imports = [
 
 # Thu toàn bộ submodules mysql.connector (an toàn)
 hidden_imports += collect_submodules("mysql.connector")
+hidden_imports += collect_submodules("docx")
+hidden_imports += ["docx"]
 
 a = Analysis(
     ["main.py"],
@@ -24,6 +26,8 @@ a = Analysis(
         ("assets/logo_pccc.png", "assets"),
         ("assets/logo_infutech.png", "assets"),
         ("assets/logo_bach_khoa.png", "assets"),
+        ("styles/app.qss", "styles"),
+        ("update_config.json", "."),
     ],
     hiddenimports=hidden_imports,
     hookspath=[],

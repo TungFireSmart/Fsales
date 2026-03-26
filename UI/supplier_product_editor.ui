@@ -1,0 +1,346 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SupplierProductEditor</class>
+ <widget class="QMainWindow" name="SupplierProductEditor">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>980</width>
+    <height>620</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Thêm/Cập nhật mã hàng NCC</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QLabel" name="label_title">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>10</y>
+      <width>420</width>
+      <height>40</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Thông tin mã hàng nhà cung cấp</string>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="txt_search">
+    <property name="geometry">
+     <rect>
+      <x>460</x>
+      <y>18</y>
+      <width>360</width>
+      <height>32</height>
+     </rect>
+    </property>
+    <property name="placeholderText">
+     <string>Nhập model (1 dòng) rồi Enter để tìm</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_search">
+    <property name="geometry">
+     <rect>
+      <x>830</x>
+      <y>18</y>
+      <width>120</width>
+      <height>32</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Tìm</string>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="txt_ten_sp">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>70</y>
+      <width>620</width>
+      <height>40</height>
+     </rect>
+    </property>
+    <property name="placeholderText">
+     <string>Tên sản phẩm</string>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="txt_model">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>70</y>
+      <width>290</width>
+      <height>40</height>
+     </rect>
+    </property>
+    <property name="placeholderText">
+     <string>Model (mã hàng)</string>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="txt_mo_ta_sp">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>160</y>
+      <width>620</width>
+      <height>80</height>
+     </rect>
+    </property>
+    <property name="placeholderText">
+     <string>Mô tả sản phẩm</string>
+    </property>
+   </widget>
+   <widget class="QGroupBox" name="group_supplier">
+    <property name="geometry">
+     <rect>
+      <x>29</x>
+      <y>350</y>
+      <width>611</width>
+      <height>121</height>
+     </rect>
+    </property>
+    <property name="title">
+     <string>Thông tin nhà cung cấp (bắt buộc)</string>
+    </property>
+    <widget class="QLineEdit" name="txt_supplier_name">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>34</y>
+       <width>581</width>
+       <height>30</height>
+      </rect>
+     </property>
+     <property name="placeholderText">
+      <string>Tên nhà cung cấp</string>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="txt_supplier_phone">
+     <property name="geometry">
+      <rect>
+       <x>340</x>
+       <y>80</y>
+       <width>260</width>
+       <height>30</height>
+      </rect>
+     </property>
+     <property name="placeholderText">
+      <string>Số điện thoại</string>
+     </property>
+    </widget>
+    <widget class="QLineEdit" name="txt_supplier_contact">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>80</y>
+       <width>301</width>
+       <height>30</height>
+      </rect>
+     </property>
+     <property name="placeholderText">
+      <string>Tên người liên hệ</string>
+     </property>
+    </widget>
+   </widget>
+   <widget class="QPushButton" name="but_save">
+    <property name="geometry">
+     <rect>
+      <x>40</x>
+      <y>250</y>
+      <width>290</width>
+      <height>56</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Lưu mã hàng cho NCC</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_update">
+    <property name="geometry">
+     <rect>
+      <x>350</x>
+      <y>250</y>
+      <width>290</width>
+      <height>56</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>UPDATE</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="but_upload_image">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>220</y>
+      <width>290</width>
+      <height>40</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Ảnh sản phẩm</string>
+    </property>
+   </widget>
+   <widget class="QGroupBox" name="group_images">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>270</y>
+      <width>291</width>
+      <height>240</height>
+     </rect>
+    </property>
+    <property name="title">
+     <string>Ảnh sản phẩm (nhiều ảnh)</string>
+    </property>
+    <widget class="QLabel" name="lbl_image_preview">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>24</y>
+       <width>110</width>
+       <height>90</height>
+      </rect>
+     </property>
+     <property name="frameShape">
+      <enum>QFrame::Shape::Box</enum>
+     </property>
+     <property name="text">
+      <string>(Không có ảnh)</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignmentFlag::AlignCenter</set>
+     </property>
+    </widget>
+    <widget class="QListWidget" name="list_images">
+     <property name="geometry">
+      <rect>
+       <x>140</x>
+       <y>24</y>
+       <width>140</width>
+       <height>160</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="but_add_image">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>126</y>
+       <width>110</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Thêm ảnh</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="but_change_image">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>156</y>
+       <width>110</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Đổi ảnh</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="but_delete_image">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>186</y>
+       <width>110</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Xóa ảnh</string>
+     </property>
+    </widget>
+   </widget>
+   <widget class="QLabel" name="label_noti">
+    <property name="geometry">
+     <rect>
+      <x>40</x>
+      <y>520</y>
+      <width>930</width>
+      <height>36</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="txt_nhan_hieu">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>120</y>
+      <width>291</width>
+      <height>32</height>
+     </rect>
+    </property>
+    <property name="placeholderText">
+     <string>Nhãn hiệu</string>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="txt_xuat_xu">
+    <property name="geometry">
+     <rect>
+      <x>380</x>
+      <y>120</y>
+      <width>260</width>
+      <height>32</height>
+     </rect>
+    </property>
+    <property name="placeholderText">
+     <string>Xuất xứ</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="txt_manufacturer">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>120</y>
+      <width>351</width>
+      <height>30</height>
+     </rect>
+    </property>
+    <property name="placeholderText">
+     <string>Nhà sản xuất (bắt buộc)</string>
+    </property>
+   </widget>
+   <widget class="QTextEdit" name="txt_gia_von">
+    <property name="geometry">
+     <rect>
+      <x>660</x>
+      <y>160</y>
+      <width>291</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="placeholderText">
+     <string>Giá nhập kho (bắt buộc)</string>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>980</width>
+     <height>22</height>
+    </rect>
+   </property>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -11,10 +11,10 @@ import misc
 from UI.win_bao_gia import Ui_Win_bao_gia
 from UI.quotation_update import Ui_ListBaoGia
 from order_handle import OrderHandle
-from crm import Crm
 import file_handle
 import lead_handle
 from quotation_save import QuotationSaver
+from ui_theme import apply_ui_v2
 
 
 class AutoCompletingLineEdit(QLineEdit):
@@ -95,6 +95,27 @@ class CustomDelegate(QStyledItemDelegate):
 
 
 class Quotato(QMainWindow):
+    @staticmethod
+    def _polish_grid_buttons(uic):
+        """Make row-action buttons readable and visually balanced."""
+        for name in ("but_them_dong", "but_xoa_dong", "but_excel"):
+            btn = getattr(uic, name, None)
+            if btn is None:
+                continue
+            btn.setMinimumSize(108, 32)
+            btn.setStyleSheet(
+                "QPushButton {"
+                "background-color: #eef2ff;"
+                "border: 1px solid #c7d2fe;"
+                "border-radius: 8px;"
+                "padding: 6px 10px;"
+                "color: #1e3a8a;"
+                "font-weight: 600;"
+                "}"
+                "QPushButton:hover { background-color: #e0e7ff; }"
+                "QPushButton:pressed { background-color: #c7d2fe; }"
+            )
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.user = None
@@ -254,6 +275,7 @@ class Quotato(QMainWindow):
         self.win_listBaoGia = QMainWindow()
         self.uic11 = Ui_ListBaoGia()
         self.uic11.setupUi(self.win_listBaoGia)
+        apply_ui_v2(self.win_listBaoGia)
         self.win_listBaoGia.show()
 
         self.uic11.label_header.setText("DANH SÁCH BÁO GIÁ - LEAD SỐ " + str(lead_id))
@@ -317,6 +339,8 @@ class Quotato(QMainWindow):
             self.sub_win1 = QMainWindow()
             self.uic5 = Ui_Win_bao_gia()
             self.uic5.setupUi(self.sub_win1)
+            apply_ui_v2(self.sub_win1)
+            Quotato._polish_grid_buttons(self.uic5)
             self.sub_win1.show()
         except Exception as e:
             print(e)
@@ -588,7 +612,7 @@ class Quotato(QMainWindow):
 
         try:
             self.sub_win1.close()
-        except:
+        except Exception:
             pass
 
         try:
@@ -610,6 +634,8 @@ class Quotato(QMainWindow):
         self.sub_win1 = QMainWindow()
         self.uic5 = Ui_Win_bao_gia()
         self.uic5.setupUi(self.sub_win1)
+        apply_ui_v2(self.sub_win1)
+        Quotato._polish_grid_buttons(self.uic5)
 
         self.sub_win1.show()
         self.uic5.but_save_thong_tin.hide()
@@ -696,7 +722,7 @@ class Quotato(QMainWindow):
                                 tex = 0
                             else:
                                 tex = int(tablet.item(row, col).text().strip().replace(",", ""))
-                    except:
+                    except Exception:
                         tex = 0
 
                     col_list.append(tex)
@@ -708,7 +734,7 @@ class Quotato(QMainWindow):
             sum0 = sum8 + sum10
             try:
                 nc = sum(int(ele[4]) * int(ele[7]) for ele in noi_dung_bao_gia if ele[1] != 'NhanCong')
-            except:
+            except Exception:
                 nc = 0
 
             if self.uic5.comboBox.currentText() in ['Giá thuê theo ngày', 'Giá thuê theo tháng', 'Giá thuê theo năm']:
@@ -849,6 +875,8 @@ class Quotato(QMainWindow):
         self.uic12 = Ui_Win_bao_gia()
         self.current_uic = self.uic12
         self.uic12.setupUi(self.sub_win12)
+        apply_ui_v2(self.sub_win12)
+        Quotato._polish_grid_buttons(self.uic12)
 
         self.sub_win12.show()
         self.uic12.but_tao_don_hang.hide()
@@ -929,6 +957,7 @@ class Quotato(QMainWindow):
         gia_tri = self.uic5.label_showtongcong.text()
         so_bg = self.uic5.label_so_bg.text()
         if company_name and mst and gia_tri and so_bg:
+            from crm import Crm
             Crm.view_detail_company(self, mst, so_bg=so_bg)
         elif not mst:
             self.uic5.label_noti.setStyleSheet('color: red')

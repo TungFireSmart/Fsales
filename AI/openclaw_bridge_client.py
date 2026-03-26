@@ -23,8 +23,9 @@ def _start_bridge_hidden():
     project_dir = Path(__file__).resolve().parents[1]  # D:\Fsales_PCCC
     py_exe = project_dir / ".venv" / "Scripts" / "python.exe"
 
+    # Fallback to current Python if local venv is missing
     if not py_exe.exists():
-        raise RuntimeError(f"Không tìm thấy Python venv: {py_exe}")
+        py_exe = Path(sys.executable)
 
     cmd = [
         str(py_exe),
@@ -65,8 +66,8 @@ def _ensure_bridge_running():
 
     _start_bridge_hidden()
 
-    # đợi bridge lên tối đa ~6 giây
-    for _ in range(12):
+    # đợi bridge lên tối đa ~15 giây
+    for _ in range(30):
         time.sleep(0.5)
         if _health_ok():
             return

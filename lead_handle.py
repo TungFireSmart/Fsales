@@ -32,7 +32,7 @@ class LeadHandle(QMainWindow):
         self.uic4.label_username.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.uic4.label_username.setText(self.user)
 
-        status_list = ['Đã nhận việc', 'Đã báo giá', 'Đã giao hàng', 'Done - Thất bại']
+        status_list = ['Mới', 'Đã nhận việc', 'Đã quá hạn báo giá', 'Cần cập nhật lại', 'Đã quá 10 ngày', 'Đã báo giá', 'Đã đặt hàng', 'Đã thanh toán', 'Đã giao hàng', 'Đã trả lại toàn bộ', 'Done - Thất bại']
         self.uic4.comboBox.addItems(status_list)
         self.uic4.comboBox.setCurrentText(result[10])
 
@@ -100,7 +100,7 @@ class LeadHandle(QMainWindow):
 
         if kq:
 
-            misc.sql_commit("UPDATE sale_lead SET phu_trach = 'waiting', status = ' ...', time_nhan_viec = NOW() WHERE lead_id = %s", (lead_id,))
+            misc.sql_commit("UPDATE sale_lead SET phu_trach = 'waiting', status = 'Mới', time_nhan_viec = NOW() WHERE lead_id = %s", (lead_id,))
             # misc.sql_commit("UPDATE sale_lead SET status = ' ...' WHERE lead_id = %s", (lead_id,))
             # misc.sql_commit("UPDATE sale_lead SET time_nhan_viec = NOW() WHERE lead_id = '{}'", (lead_id,))
 
@@ -150,7 +150,7 @@ class LeadHandle(QMainWindow):
 
     def check_busy(self):
 
-        kq = misc.sql_all("SELECT lead_id FROM sale_lead WHERE status = 'Đang xử lý' AND phu_trach = %s AND check_delete != '1'",
+        kq = misc.sql_all("SELECT lead_id FROM sale_lead WHERE status IN ('Đã nhận việc','Đã quá hạn báo giá','Cần cập nhật lại','Đã quá 10 ngày') AND phu_trach = %s AND check_delete != '1'",
             (self.user,))
 
         if not kq:
@@ -183,7 +183,7 @@ class LeadHandle(QMainWindow):
         ds = []
         for item in result:
             ds.append(item[2])
-        ds.append(' ...')
+        ds.append('waiting')
         self.uic3.comboBox.addItems(sorted(ds))
         self.uic3.comboBox.setCurrentText(self.user)
 
@@ -251,12 +251,12 @@ class LeadHandle(QMainWindow):
                 "INSERT INTO sale_lead (lead_id, name, sdt, company, mst, yc, status, phu_trach, nguoi_tao_lead, ten_co_hoi, address) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
 
-            status = 'waiting' if phu_trach == ' ...' else 'Đã nhận việc'
+            status = 'Mới' if phu_trach == 'waiting' else 'Đã nhận việc'
             val = (lead_id, ten_khach, sdt, cong_ty, mst, yeu_cau, status, phu_trach, self.user, ten_lead, diachi)
             misc.sql_commit(sql, val)
 
             # Gửi tin nhắn Telegram
-            if phu_trach == ' ...':
+            if phu_trach == 'waiting':
                 misc.send_to_telegram(f"📥 {self.user} đã tạo mới một cơ hội bán hàng số {lead_id}")
             elif phu_trach == self.user:
                 misc.send_to_telegram(f"🧑‍💼 {self.user} đã tạo mới một cơ hội bán hàng số {lead_id} và tự xử lý")
@@ -379,13 +379,13 @@ class LeadHandle(QMainWindow):
                         if len(ten_lead.split()) >= 2:
                             # ghi data đã kiểm tra vào table sale_lead
                             sql = ("UPDATE sale_lead SET name = %s, sdt = %s, company = %s, mst = %s, yc = %s, status = %s,"
-                                   " phu_trach = %s, nguoi_tao_lead = %s, ten_co_hoi = %s, address = %s")
+                                   " phu_trach = %s, nguoi_tao_lead = %s, ten_co_hoi = %s, address = %s WHERE lead_id = %s")
 
-                            if phu_trach == ' ...':
-                                val = (ten_khach, sdt, cong_ty, mst, yeu_cau, 'waiting', phu_trach, self.user, ten_lead, diachi)
+                            if phu_trach == 'waiting':
+                                val = (ten_khach, sdt, cong_ty, mst, yeu_cau, 'Mới', phu_trach, self.user, ten_lead, diachi, lead_id)
                                 misc.send_to_telegram(self.user + ' đã sửa thông tin lead ' + str(lead_id))
                             else:
-                                val = (lead_id, ten_khach, sdt, cong_ty, mst, yeu_cau, 'Đã nhận việc', phu_trach, self.user, ten_lead, diachi)
+                                val = (ten_khach, sdt, cong_ty, mst, yeu_cau, 'Đã nhận việc', phu_trach, self.user, ten_lead, diachi, lead_id)
                                 if phu_trach != self.user:
                                     misc.send_to_telegram(self.user + ' đã sửa thông tin lead ' + str(lead_id) + '.')
                                 else:
@@ -408,7 +408,8 @@ class LeadHandle(QMainWindow):
             else:
                 self.uic3.label_noti.setText('Số điện thoại phải là 10 chữ số')
         except Exception as e:
-            print(e)
+            self.uic3.label_noti.setStyleSheet("color: red")
+            self.uic3.label_noti.setText(f"Lỗi khi sửa lead: {e}")
 
     def luu_thong_tin_kh(self, ttkh):
         # ttkh = [ten_khach, sdt, cong_ty, mst, phu_trach, lead_id, diachi]

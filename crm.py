@@ -1,8 +1,17 @@
-from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QTableWidgetItem, QMessageBox, QFileDialog, QTableWidget, QWidget, QVBoxLayout
-from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QPushButton, QTableWidgetItem, QMessageBox,
+    QFileDialog, QTableWidget, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QLineEdit, QInputDialog, QFormLayout, QHeaderView
+)
+from PyQt6.QtCore import QDate, Qt, QSize
+from PyQt6.QtGui import QPixmap, QIcon
 
 import re
 import sys
+import json
+import subprocess
+import webbrowser
+import requests
 from pathlib import Path
 from datetime import datetime
 from docx import Document
@@ -11,6 +20,11 @@ import misc
 import quotation
 from UI.ds_cong_ty import Ui_ViewAllCompany
 from UI.chi_tiet_cong_ty import Ui_ViewDetailCompany
+from UI.supplier_detail import Ui_SupplierDetailWindow
+from UI.san_pham_moi import Ui_SanPhamMoi
+from UI.supplier_product_editor import Ui_SupplierProductEditor
+from ui_theme import apply_ui_v2
+import file_handle
 
 
 class Crm(QMainWindow):
@@ -20,16 +34,55 @@ class Crm(QMainWindow):
         # Màn CRM được mở qua company_view().
         self.uic8 = None
         self.win_companyview = None
+        self.suppliers_tab = None
+        self.suppliers_table = None
+        self.suppliers_search = None
         self.setWindowTitle(QApplication.translate("CompanyView", "Fsale v1.1.28"))
 
     def company_view(self):
         self.win_companyview = QMainWindow()
         self.uic8 = Ui_ViewAllCompany()
         self.uic8.setupUi(self.win_companyview)
+        apply_ui_v2(self.win_companyview)
         self.win_companyview.show()
 
         self.uic8.tabWidget.setTabText(self.uic8.tabWidget.indexOf(self.uic8.tab), "Công ty")
         self.uic8.tabWidget.setTabText(self.uic8.tabWidget.indexOf(self.uic8.tab_2), "Cá nhân")
+        self.uic8.tabWidget.setTabText(self.uic8.tabWidget.indexOf(self.uic8.tab_3), "Nhà cung cấp")
+
+        self.suppliers_tab = self.uic8.tab_3
+        self.suppliers_table = self.uic8.table_suppliers
+        self.suppliers_search = self.uic8.txt_supplier_search
+
+        self.suppliers_table.setColumnCount(5)
+        self.suppliers_table.setHorizontalHeaderLabels([
+            'Mã NCC', 'Tên NCC', 'SĐT', 'Liên hệ', 'Thao tác'
+        ])
+        self.suppliers_table.verticalHeader().setVisible(False)
+        h = self.suppliers_table.horizontalHeader()
+        h.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+        try:
+            self.uic8.but_supplier_search.clicked.disconnect()
+        except Exception:
+            pass
+        try:
+            self.uic8.but_supplier_refresh.clicked.disconnect()
+        except Exception:
+            pass
+        try:
+            self.uic8.but_supplier_add.clicked.disconnect()
+        except Exception:
+            pass
+        try:
+            self.suppliers_search.returnPressed.disconnect()
+        except Exception:
+            pass
+
+        self.uic8.but_supplier_search.clicked.connect(self.search_suppliers)
+        self.uic8.but_supplier_refresh.clicked.connect(self.load_suppliers)
+        self.uic8.but_supplier_add.clicked.connect(self.add_supplier)
+        self.suppliers_search.returnPressed.connect(self.search_suppliers)
 
         self.uic8.tabWidget.currentChanged.connect(lambda: Crm.on_tab_changed(self, self.uic8.tabWidget.currentIndex()))
 
@@ -295,8 +348,862 @@ class Crm(QMainWindow):
 
         uic.tableWidget.repaint()
 
+    def load_suppliers(self, keyword=''):
+        try:
+            if keyword:
+                q = (
+                    "SELECT supplier_id, supplier_code, name, phone, contact_name, supplier_group, status "
+                    "FROM fs_suppliers WHERE name LIKE %s OR supplier_code LIKE %s OR phone LIKE %s OR tax_code LIKE %s "
+                    "ORDER BY supplier_id DESC LIMIT 500"
+                )
+                k = f"%{keyword}%"
+                rows = misc.sql_all(q, (k, k, k, k))
+            else:
+                rows = misc.sql_all(
+                    "SELECT supplier_id, supplier_code, name, phone, contact_name, supplier_group, status "
+                    "FROM fs_suppliers ORDER BY supplier_id DESC LIMIT 500",
+                    None,
+                )
+        except Exception as e:
+            QMessageBox.warning(None, "Nhà cung cấp", f"Chưa có bảng NCC hoặc lỗi truy vấn: {e}")
+            return
+
+        rows = rows or []
+        self.suppliers_table.setRowCount(len(rows))
+        for r, item in enumerate(rows):
+            sid = int(item[0])
+            self.suppliers_table.setItem(r, 0, QTableWidgetItem(str(item[1] or '')))
+            self.suppliers_table.setItem(r, 1, QTableWidgetItem(str(item[2] or '')))
+            self.suppliers_table.setItem(r, 2, QTableWidgetItem(str(item[3] or '')))
+            self.suppliers_table.setItem(r, 3, QTableWidgetItem(str(item[4] or '')))
+
+            but_view = QPushButton("Xem")
+            but_view.clicked.connect(lambda _, supplier_id=sid: self.quick_edit_supplier(supplier_id))
+            self.suppliers_table.setCellWidget(r, 4, but_view)
+
+            self.suppliers_table.setRowHeight(r, 56)
+
+    def search_suppliers(self):
+        key = (self.suppliers_search.text() or '').strip()
+        self.load_suppliers(key)
+
+    def _sync_supplier_to_crm(self, name, tax_code='', contact_name='', phone='', email='', address=''):
+        tax_code = Crm.normalize_mst(tax_code)
+        phone = Crm.normalize_phone(phone)
+
+        if tax_code:
+            # upsert company master theo MST
+            kq = misc.sql_one("SELECT ma_kh FROM ds_cong_ty WHERE mst = %s", (tax_code,))
+            if kq:
+                misc.sql_commit(
+                    "UPDATE ds_cong_ty SET ten_cong_ty=%s, dia_chi=%s, dien_thoai_cong_ty=%s, email_cong_ty=%s, nguoi_lien_he=%s, sdt_nguoi_lh=%s WHERE mst=%s",
+                    (name, address, phone, email, contact_name, phone, tax_code)
+                )
+            else:
+                misc.sql_commit(
+                    "INSERT INTO ds_cong_ty (ten_cong_ty, mst, dia_chi, dien_thoai_cong_ty, email_cong_ty, nguoi_lien_he, sdt_nguoi_lh) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (name, tax_code, address, phone, email, contact_name, phone)
+                )
+
+        if phone and contact_name:
+            # upsert contact theo SĐT
+            kq_cn = misc.sql_one("SELECT dien_thoai FROM ds_ca_nhan WHERE dien_thoai = %s", (phone,))
+            if kq_cn:
+                misc.sql_commit(
+                    "UPDATE ds_ca_nhan SET ten=%s, email=%s, ten_cong_ty=%s, mst_cong_ty=%s, address=%s WHERE dien_thoai=%s",
+                    (contact_name, email, name, tax_code, address, phone)
+                )
+            else:
+                misc.sql_commit(
+                    "INSERT INTO ds_ca_nhan (ten, dien_thoai, email, ten_cong_ty, mst_cong_ty, address) VALUES (%s,%s,%s,%s,%s,%s)",
+                    (contact_name, phone, email, name, tax_code, address)
+                )
+
+    def add_supplier(self):
+        name, ok = QInputDialog.getText(self.win_companyview, "Thêm NCC", "Tên nhà cung cấp:")
+        if not ok or not str(name).strip():
+            return
+
+        contact, ok = QInputDialog.getText(self.win_companyview, "Thêm NCC", "Người liên hệ (bắt buộc):")
+        if not ok or not str(contact).strip():
+            QMessageBox.warning(self.win_companyview, "Thêm NCC", "Phải có người liên hệ")
+            return
+
+        phone, _ = QInputDialog.getText(self.win_companyview, "Thêm NCC", "Số điện thoại liên hệ:")
+        email, _ = QInputDialog.getText(self.win_companyview, "Thêm NCC", "Email liên hệ:")
+        tax_code, _ = QInputDialog.getText(self.win_companyview, "Thêm NCC", "Mã số thuế:")
+        address, _ = QInputDialog.getText(self.win_companyview, "Thêm NCC", "Địa chỉ:")
+
+        if not str(phone).strip() and not str(email).strip():
+            QMessageBox.warning(self.win_companyview, "Thêm NCC", "Phải có ít nhất SĐT hoặc email liên hệ")
+            return
+
+        try:
+            max_code = misc.sql_one("SELECT supplier_code FROM fs_suppliers WHERE supplier_code LIKE 'NCC-%' ORDER BY supplier_id DESC LIMIT 1", None)
+            if not max_code or not max_code[0]:
+                code = 'NCC-0001'
+            else:
+                try:
+                    n = int(str(max_code[0]).split('-')[-1]) + 1
+                except Exception:
+                    n = 1
+                code = f"NCC-{n:04d}"
+
+            phone_norm = Crm.normalize_phone(phone)
+            misc.sql_commit(
+                "INSERT INTO fs_suppliers (supplier_code, name, tax_code, phone, email, contact_name, address, supplier_group, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (code, name.strip(), Crm.normalize_mst(tax_code), phone_norm, str(email).strip(), contact.strip(), str(address).strip(), 'Khác', 'Đang hợp tác')
+            )
+            self._sync_supplier_to_crm(name.strip(), tax_code, contact.strip(), phone_norm, str(email).strip(), str(address).strip())
+
+            self.load_suppliers()
+            self.uic8.label_noti.setText(f"Đã thêm NCC: {code} - {name.strip()} (đã sync CRM)")
+        except Exception as e:
+            QMessageBox.warning(self.win_companyview, "Thêm NCC", f"Không thể thêm NCC: {e}")
+
+    def quick_edit_supplier(self, supplier_id: int):
+        row = misc.sql_one(
+            "SELECT supplier_code, name, phone, contact_name, supplier_group, status, tax_code, email, address, province, notes FROM fs_suppliers WHERE supplier_id=%s",
+            (supplier_id,),
+        )
+        if not row:
+            QMessageBox.warning(self.win_companyview, "Nhà cung cấp", "Không tìm thấy NCC")
+            return
+
+        win = QMainWindow(self.win_companyview)
+        ui = Ui_SupplierDetailWindow()
+        ui.setupUi(win)
+        apply_ui_v2(win)
+        win.setWindowTitle(f"Chi tiết NCC {row[0]} - {row[1]}")
+
+        ui.txt_name.setText(str(row[1] or ''))
+        ui.txt_contact.setText(str(row[3] or ''))
+        ui.txt_phone.setText(str(row[2] or ''))
+        ui.txt_email.setText(str(row[7] or ''))
+        ui.txt_tax.setText(str(row[6] or ''))
+        ui.txt_address.setText(str(row[8] or ''))
+        ui.txt_province.setText(str(row[9] or ''))
+        ui.txt_group.setText(str(row[4] or 'Khác'))
+        ui.txt_status.setText(str(row[5] or 'Đang hợp tác'))
+        ui.txt_notes.setText(str(row[10] or ''))
+
+        # soft-delete cột ẩn sản phẩm (không xóa vật lý)
+        col_hidden = misc.sql_one(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='fs_supplier_products' AND COLUMN_NAME='is_hidden'",
+            None,
+        )
+        if not col_hidden or int(col_hidden[0] or 0) == 0:
+            misc.sql_commit("ALTER TABLE fs_supplier_products ADD COLUMN is_hidden TINYINT(1) NOT NULL DEFAULT 0", None)
+
+        ui.table_products.setColumnCount(7)
+        ui.table_products.setHorizontalHeaderLabels(["Mã hàng", "Tên hàng", "Giá nhập", "Nhãn hiệu", "NSX", "Xuất xứ", "Thao tác"])
+        ui.table_products.setColumnWidth(0, 90)
+        ui.table_products.setColumnWidth(1, 220)
+        ui.table_products.setColumnWidth(2, 100)
+        ui.table_products.setColumnWidth(3, 110)
+        ui.table_products.setColumnWidth(4, 110)
+        ui.table_products.setColumnWidth(5, 110)
+        ui.table_products.setColumnWidth(6, 60)
+
+        # File báo giá NCC đã tách sang màn hình riêng
+
+        def _hide_item(item_code: str):
+            if not item_code:
+                return
+            ok = QMessageBox.question(
+                win,
+                "Xóa SP",
+                f"<span style='color:red; font-weight:600;'>Chắc chắn muốn xóa mã hàng {item_code} ?</span>",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if ok != QMessageBox.StandardButton.Yes:
+                return
+            misc.sql_commit(
+                "UPDATE fs_supplier_products SET is_hidden=1, updated_at=NOW() WHERE supplier_id=%s AND item_code=%s",
+                (supplier_id, item_code),
+            )
+            load_items()
+
+        def load_items():
+            rows = misc.sql_all(
+                "SELECT item_code, item_name, model, brand, manufacturer, origin, latest_price FROM fs_supplier_products WHERE supplier_id=%s AND IFNULL(is_hidden,0)=0 ORDER BY id DESC",
+                (supplier_id,),
+            ) or []
+            ui.table_products.setRowCount(len(rows))
+            for i, it in enumerate(rows):
+                item_code = str(it[0] or '')
+                ui.table_products.setItem(i, 0, QTableWidgetItem(item_code))
+                ui.table_products.setItem(i, 1, QTableWidgetItem(str(it[1] or '')))
+                ui.table_products.setItem(i, 2, QTableWidgetItem(f"{int(it[6] or 0):,}"))
+                ui.table_products.setItem(i, 3, QTableWidgetItem(str(it[3] or '')))
+                ui.table_products.setItem(i, 4, QTableWidgetItem(str(it[4] or '')))
+                ui.table_products.setItem(i, 5, QTableWidgetItem(str(it[5] or '')))
+                but_del = QPushButton("Xóa SP")
+                but_del.clicked.connect(lambda _, code=item_code: _hide_item(code))
+                ui.table_products.setCellWidget(i, 6, but_del)
+                ui.table_products.setRowHeight(i, 40)
+
+        def add_item():
+            self.win_supplier_product = QMainWindow(win)
+            self.ui_supplier_product = Ui_SupplierProductEditor()
+            self.ui_supplier_product.setupUi(self.win_supplier_product)
+            apply_ui_v2(self.win_supplier_product)
+            self.win_supplier_product.setWindowTitle(f"Thêm/Cập nhật mã hàng NCC - {row[0]}")
+
+            u = self.ui_supplier_product
+            u.but_save.setText("Lưu mã hàng cho NCC")
+            u.but_update.hide()
+            u.txt_search.setPlaceholderText("Nhập model (1 dòng) rồi Enter để tìm")
+            u.list_images.setViewMode(u.list_images.ViewMode.IconMode)
+            u.list_images.setIconSize(QSize(72, 72))
+            u.list_images.setResizeMode(u.list_images.ResizeMode.Adjust)
+            u.list_images.setGridSize(QSize(90, 110))
+            u.list_images.setSpacing(8)
+
+            # Bỏ cụm giá cho thuê khỏi màn hình NCC
+            if hasattr(u, 'groupBox') and u.groupBox is not None:
+                u.groupBox.hide()
+
+            # Bổ sung trường bắt buộc ngay trên màn hình
+            supplier_row = misc.sql_one("SELECT name, phone, contact_name FROM fs_suppliers WHERE supplier_id=%s", (supplier_id,))
+            if isinstance(supplier_row, dict):
+                _sup_name = str(supplier_row.get('name') or '')
+                _sup_phone = str(supplier_row.get('phone') or '')
+                _sup_contact = str(supplier_row.get('contact_name') or '')
+            elif isinstance(supplier_row, (list, tuple)):
+                _sup_name = str(supplier_row[0] or '') if len(supplier_row) > 0 else ''
+                _sup_phone = str(supplier_row[1] or '') if len(supplier_row) > 1 else ''
+                _sup_contact = str(supplier_row[2] or '') if len(supplier_row) > 2 else ''
+            else:
+                _sup_name = ''
+                _sup_phone = ''
+                _sup_contact = ''
+
+            u.txt_supplier_name.setText(_sup_name)
+            u.txt_supplier_phone.setText(_sup_phone)
+            u.txt_supplier_contact.setText(_sup_contact)
+
+            misc.sql_commit(
+                """
+                CREATE TABLE IF NOT EXISTS fs_supplier_product_images (
+                    image_id BIGINT NOT NULL AUTO_INCREMENT,
+                    supplier_id BIGINT NOT NULL,
+                    item_code VARCHAR(128) NOT NULL,
+                    file_name VARCHAR(255) NOT NULL,
+                    drive_file_id VARCHAR(128) NOT NULL,
+                    drive_link TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+                    PRIMARY KEY (image_id),
+                    KEY idx_spi_supplier_item (supplier_id, item_code)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """,
+                None,
+            )
+
+            def _load_images(item_code: str):
+                u.list_images.clear()
+                u.lbl_image_preview.setText('(Không có ảnh)')
+                u.lbl_image_preview.setPixmap(QPixmap())
+                if not item_code:
+                    return []
+                rows_img = misc.sql_all(
+                    "SELECT image_id, file_name, drive_file_id, drive_link FROM fs_supplier_product_images WHERE supplier_id=%s AND item_code=%s AND IFNULL(is_deleted,0)=0 ORDER BY image_id DESC",
+                    (supplier_id, item_code),
+                ) or []
+                from PyQt6.QtWidgets import QListWidgetItem
+                for rr in rows_img:
+                    image_id = int(rr[0])
+                    file_name = str(rr[1] or '')
+                    drive_file_id = str(rr[2] or '')
+                    drive_link = str(rr[3] or '')
+                    li = QListWidgetItem(file_name)
+                    li.setData(Qt.ItemDataRole.UserRole, (image_id, drive_file_id, drive_link))
+
+                    # thumbnail icon
+                    try:
+                        url = f"https://drive.google.com/uc?export=download&id={drive_file_id}"
+                        resp = requests.get(url, timeout=15)
+                        resp.raise_for_status()
+                        pm = QPixmap()
+                        pm.loadFromData(resp.content)
+                        if not pm.isNull():
+                            li.setIcon(QIcon(pm.scaled(72, 72, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)))
+                    except Exception:
+                        pass
+
+                    u.list_images.addItem(li)
+                if u.list_images.count() > 0:
+                    u.list_images.setCurrentRow(0)
+                return rows_img
+
+            def _show_selected_image():
+                cur = u.list_images.currentItem()
+                if not cur:
+                    u.lbl_image_preview.setText('(Không có ảnh)')
+                    u.lbl_image_preview.setPixmap(QPixmap())
+                    return
+                _img_id, drive_file_id, _drive_link = cur.data(Qt.ItemDataRole.UserRole)
+                try:
+                    url = f"https://drive.google.com/uc?export=download&id={drive_file_id}"
+                    resp = requests.get(url, timeout=20)
+                    resp.raise_for_status()
+                    pm = QPixmap()
+                    pm.loadFromData(resp.content)
+                    if pm.isNull():
+                        raise RuntimeError('Ảnh không hợp lệ')
+                    u.lbl_image_preview.setPixmap(pm.scaled(u.lbl_image_preview.width()-4, u.lbl_image_preview.height()-4, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                except Exception:
+                    u.lbl_image_preview.setText('Không tải được ảnh')
+                    u.lbl_image_preview.setPixmap(QPixmap())
+
+            def _upload_new_image_for_current_product(replace_selected=False):
+                item_code = u.txt_model.toPlainText().strip()
+                item_name = u.txt_ten_sp.toPlainText().strip()
+                if not item_code or not item_name:
+                    u.label_noti.setStyleSheet('color: red')
+                    u.label_noti.setText('Cần nhập model và tên hàng trước khi upload ảnh')
+                    return
+
+                uploaded = file_handle.upload_file()  # tenfile|file_id|mime
+                if not uploaded:
+                    return
+                parts = str(uploaded).split('|')
+                if len(parts) < 2:
+                    u.label_noti.setStyleSheet('color: red')
+                    u.label_noti.setText('Upload ảnh thất bại')
+                    return
+                old_name, file_id = parts[0], parts[1]
+
+                # đổi tên file theo "model + tên hàng"
+                desired_name = f"{item_code} {item_name}".strip()
+                try:
+                    service = file_handle.authenticate_drive_with_client_info()
+                    service.files().update(fileId=file_id, body={'name': desired_name}).execute()
+                    file_name = desired_name
+                except Exception:
+                    file_name = old_name
+
+                drive_link = f"https://drive.google.com/file/d/{file_id}/view"
+
+                if replace_selected:
+                    cur = u.list_images.currentItem()
+                    if cur:
+                        old_image_id, old_drive_id, _ = cur.data(Qt.ItemDataRole.UserRole)
+                        misc.sql_commit("UPDATE fs_supplier_product_images SET is_deleted=1 WHERE image_id=%s", (old_image_id,))
+                        try:
+                            file_handle.delete_file_from_drive(old_drive_id)
+                        except Exception:
+                            pass
+
+                misc.sql_commit(
+                    "INSERT INTO fs_supplier_product_images (supplier_id, item_code, file_name, drive_file_id, drive_link, is_deleted) VALUES (%s,%s,%s,%s,%s,0)",
+                    (supplier_id, item_code, file_name, file_id, drive_link),
+                )
+                _load_images(item_code)
+                _show_selected_image()
+
+            def _delete_selected_image():
+                cur = u.list_images.currentItem()
+                if not cur:
+                    return
+                image_id, drive_id, _ = cur.data(Qt.ItemDataRole.UserRole)
+                misc.sql_commit("UPDATE fs_supplier_product_images SET is_deleted=1 WHERE image_id=%s", (image_id,))
+                try:
+                    file_handle.delete_file_from_drive(drive_id)
+                except Exception:
+                    pass
+                _load_images(u.txt_model.toPlainText().strip())
+                _show_selected_image()
+
+            def _save_item_from_form():
+                item_code = u.txt_model.toPlainText().strip()
+                item_name = u.txt_ten_sp.toPlainText().strip()
+                latest_price = float(re.sub(r"\D", "", u.txt_gia_von.toPlainText()) or 0)
+                model = item_code  # mã hàng được tính là model
+                brand = u.txt_nhan_hieu.toPlainText().strip()
+                manufacturer = u.txt_manufacturer.text().strip()
+                origin = u.txt_xuat_xu.toPlainText().strip()
+                supplier_name = u.txt_supplier_name.text().strip()
+                supplier_phone = u.txt_supplier_phone.text().strip()
+                supplier_contact = u.txt_supplier_contact.text().strip()
+
+                if not item_code:
+                    u.label_noti.setStyleSheet('color: red')
+                    u.label_noti.setText('Thiếu model/mã hàng')
+                    return
+                if latest_price <= 0:
+                    u.label_noti.setStyleSheet('color: red')
+                    u.label_noti.setText('Thiếu giá hợp lệ')
+                    return
+                if not manufacturer:
+                    u.label_noti.setStyleSheet('color: red')
+                    u.label_noti.setText('Thiếu tên nhà sản xuất')
+                    return
+                if not supplier_name or not supplier_phone or not supplier_contact:
+                    u.label_noti.setStyleSheet('color: red')
+                    u.label_noti.setText('Thiếu thông tin NCC (tên/SĐT/người liên hệ)')
+                    return
+
+                # đồng bộ thông tin NCC bắt buộc
+                misc.sql_commit(
+                    "UPDATE fs_suppliers SET name=%s, phone=%s, contact_name=%s, updated_at=NOW() WHERE supplier_id=%s",
+                    (supplier_name, supplier_phone, supplier_contact, supplier_id),
+                )
+
+                exists = misc.sql_one(
+                    "SELECT id FROM fs_supplier_products WHERE supplier_id=%s AND item_code=%s",
+                    (supplier_id, item_code),
+                )
+                if exists:
+                    misc.sql_commit(
+                        "UPDATE fs_supplier_products SET item_name=%s, model=%s, brand=%s, manufacturer=%s, origin=%s, latest_price=%s, is_hidden=0, updated_at=NOW() WHERE supplier_id=%s AND item_code=%s",
+                        (item_name, model, brand, manufacturer, origin, latest_price, supplier_id, item_code),
+                    )
+                else:
+                    misc.sql_commit(
+                        "INSERT INTO fs_supplier_products (supplier_id, item_code, item_name, model, brand, manufacturer, origin, latest_price) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (supplier_id, item_code, item_name, model, brand, manufacturer, origin, latest_price),
+                    )
+
+                u.label_noti.setStyleSheet('color: blue')
+                u.label_noti.setText('Đã lưu mã hàng + thông tin NCC')
+                load_items()
+                _load_images(item_code)
+                _show_selected_image()
+
+            def _search_prefill():
+                raw = u.txt_search.toPlainText()
+                txt = (raw.splitlines()[0] if raw else '').strip()
+                if raw != txt:
+                    u.txt_search.setText(txt)
+                if not txt:
+                    return
+                # ưu tiên từ fs_supplier_products hiện có của NCC
+                kq = misc.sql_one(
+                    "SELECT item_code, item_name, latest_price, brand, manufacturer, origin FROM fs_supplier_products WHERE supplier_id=%s AND item_code=%s AND IFNULL(is_hidden,0)=0",
+                    (supplier_id, txt),
+                )
+                if kq:
+                    u.txt_model.setText(str(kq[0] or ''))
+                    u.txt_ten_sp.setText(str(kq[1] or ''))
+                    u.txt_gia_von.setText(f"{int(kq[2] or 0):,}")
+                    u.txt_nhan_hieu.setText(str(kq[3] or ''))
+                    u.txt_manufacturer.setText(str(kq[4] or ''))
+                    u.txt_xuat_xu.setText(str(kq[5] or ''))
+                    _load_images(str(kq[0] or ''))
+                    _show_selected_image()
+                    u.label_noti.setText('Đã nạp dữ liệu mã hàng của NCC')
+                    return
+                # fallback từ master sản phẩm
+                m = misc.sql_one("SELECT ten_san_pham, model, gia_dau_vao, nhan_hieu, xuat_xu FROM gia_tong_hop WHERE model=%s", (txt,))
+                if m:
+                    u.txt_ten_sp.setText(str(m[0] or ''))
+                    u.txt_model.setText(str(m[1] or ''))
+                    u.txt_gia_von.setText(f"{int(m[2] or 0):,}")
+                    u.txt_nhan_hieu.setText(str(m[3] or ''))
+                    u.txt_xuat_xu.setText(str(m[4] or ''))
+                    _load_images(str(m[1] or txt))
+                    _show_selected_image()
+                    u.label_noti.setText('Đã nạp từ danh mục sản phẩm chung')
+                else:
+                    u.label_noti.setStyleSheet('color: red')
+                    u.label_noti.setText('Không tìm thấy model')
+
+            u.but_save.clicked.connect(_save_item_from_form)
+            u.but_search.clicked.connect(_search_prefill)
+            u.but_add_image.clicked.connect(lambda: _upload_new_image_for_current_product(False))
+            u.but_change_image.clicked.connect(lambda: _upload_new_image_for_current_product(True))
+            u.but_delete_image.clicked.connect(_delete_selected_image)
+            u.list_images.currentItemChanged.connect(lambda *_: _show_selected_image())
+
+            # Search 1 dòng: Enter = tìm, không xuống dòng
+            _orig_keypress = u.txt_search.keyPressEvent
+            def _search_keypress(ev):
+                if ev.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    _search_prefill()
+                    ev.accept()
+                    return
+                _orig_keypress(ev)
+            u.txt_search.keyPressEvent = _search_keypress
+
+            self.win_supplier_product.show()
+
+        def save_supplier():
+            name = ui.txt_name.text().strip()
+            contact = ui.txt_contact.text().strip()
+            phone = Crm.normalize_phone(ui.txt_phone.text())
+            email = ui.txt_email.text().strip()
+            tax = Crm.normalize_mst(ui.txt_tax.text())
+            address = ui.txt_address.text().strip()
+
+            if not name or not contact or (not phone and not email):
+                QMessageBox.warning(win, "Nhà cung cấp", "Cần Tên NCC + Người liên hệ + (SĐT hoặc Email)")
+                return
+
+            misc.sql_commit(
+                "UPDATE fs_suppliers SET name=%s, phone=%s, contact_name=%s, tax_code=%s, email=%s, address=%s, province=%s, supplier_group=%s, status=%s, notes=%s WHERE supplier_id=%s",
+                (
+                    name,
+                    phone,
+                    contact,
+                    tax,
+                    email,
+                    address,
+                    ui.txt_province.text().strip(),
+                    ui.txt_group.text().strip() or 'Khác',
+                    ui.txt_status.text().strip() or 'Đang hợp tác',
+                    ui.txt_notes.text().strip(),
+                    supplier_id,
+                ),
+            )
+            self._sync_supplier_to_crm(name, tax, contact, phone, email, address)
+            self.load_suppliers()
+            QMessageBox.information(win, "Nhà cung cấp", "Đã lưu thông tin NCC")
+
+        ui.but_add_item.clicked.connect(add_item)
+        ui.but_reload_item.clicked.connect(load_items)
+        ui.but_save.clicked.connect(save_supplier)
+
+        ui.but_upload_quote.setText("Báo giá NCC")
+        ui.but_upload_quote.clicked.connect(lambda: self.open_supplier_quote_files(supplier_id, win))
+        for _legacy_name in (
+            'but_reload_files',
+            'but_open_file_link',
+            'but_mark_done',
+            'table_files',
+            'label_files',
+        ):
+            _w = getattr(ui, _legacy_name, None)
+            if _w is not None:
+                _w.hide()
+
+        load_items()
+        win.show()
+        self.win_supplier_detail = win
+
+    def open_supplier_quote_files(self, supplier_id: int, parent=None):
+        supplier = misc.sql_one("SELECT supplier_code, name FROM fs_suppliers WHERE supplier_id=%s", (supplier_id,))
+        if not supplier:
+            QMessageBox.warning(self.win_companyview, "Báo giá NCC", "Không tìm thấy NCC")
+            return
+
+        win = QMainWindow(parent or self.win_companyview)
+        win.setWindowTitle(f"Báo giá NCC - {supplier[0]} - {supplier[1]}")
+        root = QWidget(win)
+        lay = QVBoxLayout(root)
+
+        tb = QTableWidget()
+        tb.setColumnCount(7)
+        tb.setHorizontalHeaderLabels(["ID", "Thời gian", "Tên file", "Ghi chú", "Trạng thái", "Nhập DB", "Download"])
+        tb.setColumnWidth(0, 55)
+        tb.setColumnWidth(1, 130)
+        tb.setColumnWidth(2, 300)
+        tb.setColumnWidth(3, 220)
+        tb.setColumnWidth(4, 90)
+        tb.setColumnWidth(5, 110)
+        tb.setColumnWidth(6, 110)
+        lay.addWidget(tb)
+
+        def _extract_drive_id(link: str) -> str:
+            if not link:
+                return ''
+            m = re.search(r'/d/([^/]+)/', link)
+            if m:
+                return m.group(1)
+            m = re.search(r'id=([^&]+)', link)
+            return m.group(1) if m else ''
+
+        def _download_one(file_name: str, link: str):
+            drive_id = _extract_drive_id(link)
+            if not drive_id:
+                QMessageBox.warning(win, "Download", "Không đọc được Drive file id")
+                return
+
+            folder = QFileDialog.getExistingDirectory(win, "Chọn thư mục lưu file")
+            if not folder:
+                return
+
+            safe_name = file_name or f"{drive_id}.bin"
+            save_path = Path(folder) / safe_name
+            url = f"https://drive.google.com/uc?export=download&id={drive_id}"
+            try:
+                r = requests.get(url, timeout=90)
+                r.raise_for_status()
+                save_path.write_bytes(r.content)
+                QMessageBox.information(win, "Download", f"Đã tải file về:\n{save_path}")
+            except Exception as e:
+                QMessageBox.warning(win, "Download", f"Tải file thất bại: {e}")
+
+        def _import_one(file_id: int, link: str):
+            drive_id = _extract_drive_id(link)
+            if not drive_id:
+                QMessageBox.warning(win, "Nhập DB", "Không đọc được Drive file id")
+                return
+            py = r"D:\Fsales_PCCC\.venv\Scripts\python.exe"
+            cli = r"C:\Users\Admin\.openclaw\workspace\fsales_connector\cli.py"
+            cmd = [py, cli, "import-supplier-quote", "--drive-file-id", drive_id]
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+                if r.returncode != 0:
+                    raise RuntimeError(r.stderr or r.stdout or 'Import thất bại')
+
+                result = {}
+                try:
+                    result = json.loads((r.stdout or '').strip() or '{}')
+                except Exception:
+                    result = {}
+
+                _load()
+                missing_count = int(result.get('missing_meta_count') or 0)
+                process_status = str(result.get('process_status') or '').strip()
+                if process_status == 'verify_pending' or missing_count > 0:
+                    QMessageBox.warning(
+                        win,
+                        "Cần xác minh",
+                        f"Đã nhập báo giá nhưng còn {missing_count} dòng thiếu model/nhãn hiệu/NSX/xuất xứ.\n"
+                        "Vui lòng bổ sung trước khi chốt dữ liệu."
+                    )
+                else:
+                    QMessageBox.information(win, "Nhập DB", "Đã nhập báo giá vào DB thành công")
+            except Exception as e:
+                QMessageBox.warning(win, "Nhập DB", f"Không nhập được DB: {e}")
+
+        def _open_verify(file_id: int):
+            rows = misc.sql_all(
+                """
+                SELECT
+                    l.supplier_quote_line_id,
+                    l.line_no,
+                    l.item_code,
+                    l.item_name,
+                    IFNULL(l.model,''),
+                    IFNULL(l.brand,''),
+                    IFNULL(l.manufacturer,''),
+                    IFNULL(l.origin,'')
+                FROM fs_supplier_quotes q
+                JOIN fs_supplier_quote_lines l ON l.supplier_quote_id=q.supplier_quote_id
+                WHERE q.source_file_id=%s
+                  AND (
+                    IFNULL(l.model,'')='' OR IFNULL(l.brand,'')='' OR
+                    IFNULL(l.manufacturer,'')='' OR IFNULL(l.origin,'')=''
+                  )
+                ORDER BY l.line_no ASC
+                """,
+                (file_id,),
+            ) or []
+
+            if not rows:
+                misc.sql_commit(
+                    "UPDATE fs_supplier_files SET process_status='done', processed_by='Anna', processed_at=NOW() WHERE file_id=%s",
+                    (file_id,),
+                )
+                _load()
+                QMessageBox.information(win, "Xác minh", "Không còn dòng thiếu thông tin. Đã chuyển trạng thái hoàn tất.")
+                return
+
+            vwin = QMainWindow(win)
+            vwin.setWindowTitle(f"Bổ sung thông tin sản phẩm thiếu - file #{file_id}")
+            root2 = QWidget(vwin)
+            lay2 = QVBoxLayout(root2)
+
+            tip = QLabel("Các ô màu vàng là bắt buộc: model, nhãn hiệu, nhà sản xuất, xuất xứ")
+            tip.setStyleSheet("color:#92400e; font-weight:600;")
+            lay2.addWidget(tip)
+
+            t2 = QTableWidget()
+            t2.setColumnCount(8)
+            t2.setHorizontalHeaderLabels(["line_id", "STT", "Mã hàng", "Tên hàng", "Model", "Nhãn hiệu", "NSX", "Xuất xứ"])
+            t2.setColumnWidth(0, 80)
+            t2.setColumnWidth(1, 60)
+            t2.setColumnWidth(2, 120)
+            t2.setColumnWidth(3, 260)
+            t2.setColumnWidth(4, 120)
+            t2.setColumnWidth(5, 140)
+            t2.setColumnWidth(6, 140)
+            t2.setColumnWidth(7, 140)
+            t2.setRowCount(len(rows))
+
+            for i, r in enumerate(rows):
+                vals = [str(r[0] or ''), str(r[1] or ''), str(r[2] or ''), str(r[3] or ''), str(r[4] or ''), str(r[5] or ''), str(r[6] or ''), str(r[7] or '')]
+                for c, v in enumerate(vals):
+                    item = QTableWidgetItem(v)
+                    if c in (0, 1, 2, 3):
+                        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    if c in (4, 5, 6, 7) and not v.strip():
+                        item.setBackground(Qt.GlobalColor.yellow)
+                    t2.setItem(i, c, item)
+                t2.setRowHeight(i, 34)
+
+            lay2.addWidget(t2)
+
+            but_save = QPushButton("Lưu bổ sung")
+
+            def _save_verify():
+                missing_after = 0
+                for i in range(t2.rowCount()):
+                    line_id = int(t2.item(i, 0).text())
+                    item_code = (t2.item(i, 2).text() or '').strip()
+                    model = (t2.item(i, 4).text() or '').strip()
+                    brand = (t2.item(i, 5).text() or '').strip()
+                    manufacturer = (t2.item(i, 6).text() or '').strip()
+                    origin = (t2.item(i, 7).text() or '').strip()
+
+                    if not (model and brand and manufacturer and origin):
+                        missing_after += 1
+
+                    misc.sql_commit(
+                        "UPDATE fs_supplier_quote_lines SET model=%s, brand=%s, manufacturer=%s, origin=%s WHERE supplier_quote_line_id=%s",
+                        (model, brand, manufacturer, origin, line_id),
+                    )
+
+                    if item_code:
+                        misc.sql_commit(
+                            "UPDATE fs_supplier_products SET model=%s, brand=%s, manufacturer=%s, origin=%s, updated_at=NOW() WHERE supplier_id=%s AND item_code=%s",
+                            (model, brand, manufacturer, origin, supplier_id, item_code),
+                        )
+
+                if missing_after == 0:
+                    misc.sql_commit(
+                        "UPDATE fs_supplier_files SET process_status='done', processed_by='Anna', processed_at=NOW() WHERE file_id=%s",
+                        (file_id,),
+                    )
+                    QMessageBox.information(vwin, "Xác minh", "Đã bổ sung đủ thông tin. File chuyển sang hoàn tất.")
+                else:
+                    misc.sql_commit(
+                        "UPDATE fs_supplier_files SET process_status='verify_pending', processed_by='Anna', processed_at=NOW() WHERE file_id=%s",
+                        (file_id,),
+                    )
+                    QMessageBox.warning(vwin, "Xác minh", "Vẫn còn dòng thiếu thông tin. File giữ trạng thái Cần xác minh.")
+
+                _load()
+
+            but_save.clicked.connect(_save_verify)
+            lay2.addWidget(but_save)
+
+            vwin.setCentralWidget(root2)
+            vwin.resize(1100, 560)
+            vwin.show()
+            self.win_supplier_verify = vwin
+
+        def _load():
+            rows = misc.sql_all(
+                "SELECT file_id, created_at, file_name, note, process_status, drive_link FROM fs_supplier_files WHERE supplier_id=%s ORDER BY file_id DESC LIMIT 200",
+                (supplier_id,),
+            ) or []
+            tb.setRowCount(len(rows))
+            for i, r in enumerate(rows):
+                file_id = int(r[0])
+                created_at = str(r[1] or '')
+                file_name = str(r[2] or '')
+                note = str(r[3] or '')
+                status = str(r[4] or 'pending')
+                drive_link = str(r[5] or '')
+
+                tb.setItem(i, 0, QTableWidgetItem(str(file_id)))
+                tb.setItem(i, 1, QTableWidgetItem(created_at))
+                tb.setItem(i, 2, QTableWidgetItem(file_name))
+                tb.setItem(i, 3, QTableWidgetItem(note))
+
+                status_item = QTableWidgetItem('✅' if status == 'done' else ('🟡 Cần xác minh' if status == 'verify_pending' else ''))
+                if status == 'verify_pending':
+                    status_item.setBackground(Qt.GlobalColor.yellow)
+                tb.setItem(i, 4, status_item)
+
+                if status == 'done':
+                    tb.setCellWidget(i, 5, QLabel(''))
+                elif status == 'verify_pending':
+                    but_verify = QPushButton("Bổ sung")
+                    but_verify.clicked.connect(lambda _, fid=file_id: _open_verify(fid))
+                    tb.setCellWidget(i, 5, but_verify)
+                else:
+                    but_import = QPushButton("Nhập vào DB")
+                    but_import.clicked.connect(lambda _, fid=file_id, link=drive_link: _import_one(fid, link))
+                    tb.setCellWidget(i, 5, but_import)
+
+                but_download = QPushButton("Download")
+                but_download.clicked.connect(lambda _, fn=file_name, link=drive_link: _download_one(fn, link))
+                tb.setCellWidget(i, 6, but_download)
+                tb.setRowHeight(i, 38)
+
+        _load()
+        win.setCentralWidget(root)
+        win.resize(1120, 620)
+        win.show()
+        self.win_supplier_quotes = win
+
+    def manage_supplier_products(self, supplier_id: int):
+        supplier = misc.sql_one("SELECT supplier_code, name FROM fs_suppliers WHERE supplier_id=%s", (supplier_id,))
+        if not supplier:
+            QMessageBox.warning(self.win_companyview, "Nhà cung cấp", "Không tìm thấy NCC")
+            return
+
+        col_hidden = misc.sql_one(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='fs_supplier_products' AND COLUMN_NAME='is_hidden'",
+            None,
+        )
+        if not col_hidden or int(col_hidden[0] or 0) == 0:
+            misc.sql_commit("ALTER TABLE fs_supplier_products ADD COLUMN is_hidden TINYINT(1) NOT NULL DEFAULT 0", None)
+
+        rows = misc.sql_all(
+            "SELECT item_code, item_name, model, brand, manufacturer, origin, latest_price FROM fs_supplier_products WHERE supplier_id=%s AND IFNULL(is_hidden,0)=0 ORDER BY id DESC",
+            (supplier_id,),
+        ) or []
+
+        lines = [f"NCC {supplier[0]} - {supplier[1]}", "", "Danh sách mã hàng hiện có:"]
+        if rows:
+            for x in rows:
+                lines.append(
+                    f"- {x[0]} | {x[1] or ''} | model: {x[2] or ''} | nhãn hiệu: {x[3] or ''} | NSX: {x[4] or ''} | xuất xứ: {x[5] or ''} | giá {int(x[6] or 0):,}"
+                )
+        else:
+            lines.append("(chưa có mã hàng)")
+
+        msg = QMessageBox(self.win_companyview)
+        msg.setWindowTitle("Mã hàng NCC")
+        msg.setText("\n".join(lines))
+        but_add = msg.addButton("Thêm/Cập nhật", QMessageBox.ButtonRole.AcceptRole)
+        msg.addButton("Đóng", QMessageBox.ButtonRole.RejectRole)
+        msg.exec()
+
+        if msg.clickedButton() != but_add:
+            return
+
+        item_code, ok = QInputDialog.getText(self.win_companyview, "Mã hàng NCC", "Mã hàng (item_code):")
+        if not ok or not str(item_code).strip():
+            return
+        item_name, _ = QInputDialog.getText(self.win_companyview, "Mã hàng NCC", "Tên hàng:")
+        model, _ = QInputDialog.getText(self.win_companyview, "Mã hàng NCC", "Model:", text=item_code.strip())
+        brand, _ = QInputDialog.getText(self.win_companyview, "Mã hàng NCC", "Nhãn hiệu:")
+        manufacturer, _ = QInputDialog.getText(self.win_companyview, "Mã hàng NCC", "Nhà sản xuất:")
+        origin, _ = QInputDialog.getText(self.win_companyview, "Mã hàng NCC", "Xuất xứ:")
+        latest_price, _ = QInputDialog.getDouble(self.win_companyview, "Mã hàng NCC", "Giá nhập gần nhất:", 0, 0, 10**12, 0)
+
+        exists = misc.sql_one(
+            "SELECT id FROM fs_supplier_products WHERE supplier_id=%s AND item_code=%s",
+            (supplier_id, item_code.strip()),
+        )
+        if exists:
+            misc.sql_commit(
+                "UPDATE fs_supplier_products SET item_name=%s, model=%s, brand=%s, manufacturer=%s, origin=%s, latest_price=%s, is_hidden=0 WHERE supplier_id=%s AND item_code=%s",
+                (item_name.strip(), model.strip(), brand.strip(), manufacturer.strip(), origin.strip(), latest_price, supplier_id, item_code.strip()),
+            )
+        else:
+            misc.sql_commit(
+                "INSERT INTO fs_supplier_products (supplier_id, item_code, item_name, model, brand, manufacturer, origin, latest_price) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                (supplier_id, item_code.strip(), item_name.strip(), model.strip(), brand.strip(), manufacturer.strip(), origin.strip(), latest_price),
+            )
+
+        QMessageBox.information(self.win_companyview, "Mã hàng NCC", "Đã lưu thông tin mã hàng NCC")
+
     def on_tab_changed(self, index):
         self.uic8.tableWidget_2.clear()
+
+        if self.suppliers_tab is not None and index == self.uic8.tabWidget.indexOf(self.suppliers_tab):
+            self.uic8.label.setText('DANH SÁCH NHÀ CUNG CẤP')
+            self.load_suppliers((self.suppliers_search.text() or '').strip() if self.suppliers_search else '')
+            return
 
         if index == self.uic8.tabWidget.indexOf(self.uic8.tab_2):
             # self.uic8.tableWidget_2.verticalHeader().setVisible(False)
@@ -504,6 +1411,9 @@ class Crm(QMainWindow):
             self.win_quotato.sub_win1 = QMainWindow()
             self.win_quotato.uic5 = quotation.Ui_Win_bao_gia()
             self.win_quotato.uic5.setupUi(self.win_quotato.sub_win1)
+            apply_ui_v2(self.win_quotato.sub_win1)
+            if hasattr(quotation.Quotato, '_polish_grid_buttons'):
+                quotation.Quotato._polish_grid_buttons(self.win_quotato.uic5)
             self.win_quotato.sub_win1.show()
             self.win_quotato.show_bg(str(lead_id), str(so_bg), data)
 
@@ -517,6 +1427,7 @@ class Crm(QMainWindow):
         self.win_detailcompanyview = QMainWindow()
         self.uic10 = Ui_ViewDetailCompany()
         self.uic10.setupUi(self.win_detailcompanyview)
+        apply_ui_v2(self.win_detailcompanyview)
         self.win_detailcompanyview.show()
 
         if not item:
@@ -632,6 +1543,7 @@ class Crm(QMainWindow):
         self.win_detailcompanyview = QMainWindow()
         self.uic9 = Ui_ViewDetailCompany()
         self.uic9.setupUi(self.win_detailcompanyview)
+        apply_ui_v2(self.win_detailcompanyview)
         self.win_detailcompanyview.show()
 
         # Phân ra 2 trường hợp để lấy MST
@@ -1216,6 +2128,7 @@ class Crm(QMainWindow):
         self.win_addcompanyview = QMainWindow()
         self.uic9 = Ui_ViewDetailCompany()
         self.uic9.setupUi(self.win_addcompanyview)
+        apply_ui_v2(self.win_addcompanyview)
         self.win_addcompanyview.show()
 
         self.uic9.label_noti.setText("Thêm thông tin khách hàng mới vào CSDL")
