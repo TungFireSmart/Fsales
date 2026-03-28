@@ -11,6 +11,7 @@ import file_handle
 import quotation
 import misc
 from UI.new_lead import Ui_NewLead
+from ui_theme import apply_ui_v2
 
 
 class LeadHandle(QMainWindow):
@@ -25,32 +26,47 @@ class LeadHandle(QMainWindow):
         self.win_update_lead = QMainWindow()
         self.uic4 = Ui_LeadUpdate()
         self.uic4.setupUi(self.win_update_lead)
+        apply_ui_v2(self.win_update_lead)
         self.win_update_lead.show()
 
-        result = misc.sql_one("SELECT * from sale_lead WHERE lead_id = %s", (lead_id,))
+        # Tránh phụ thuộc thứ tự cột của SELECT * (dễ crash khi DB schema đổi)
+        result = misc.sql_one(
+            "SELECT lead_id, name, sdt, company, mst, yc, address, status, file "
+            "FROM sale_lead WHERE lead_id = %s",
+            (lead_id,)
+        )
+
+        if not result:
+            QMessageBox.warning(self.win_update_lead, "Lỗi", f"Không tìm thấy lead #{lead_id}")
+            self.win_update_lead.close()
+            return
+
+        lead_id_db, name, sdt, company, mst, yc, address, status, old_files = result
 
         self.uic4.label_username.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.uic4.label_username.setText(self.user)
+        self.uic4.label_username.setText(str(self.user or ''))
 
         status_list = ['Mới', 'Đã nhận việc', 'Đã quá hạn báo giá', 'Cần cập nhật lại', 'Đã quá 10 ngày', 'Đã báo giá', 'Đã đặt hàng', 'Đã thanh toán', 'Đã giao hàng', 'Đã trả lại toàn bộ', 'Done - Thất bại']
         self.uic4.comboBox.addItems(status_list)
-        self.uic4.comboBox.setCurrentText(result[10])
+        self.uic4.comboBox.setCurrentText((status or 'Mới'))
 
-        self.uic4.label_lead_id.setText(lead_id)
-        self.uic4.txt_ten_cong_ty.setText(result[4])
-        self.uic4.txt_ten_khach_hang.setText(result[1])
-        self.uic4.txt_so_dt.setText(result[2])
-        self.uic4.txt_yeu_cau.setText(result[9])
-        self.uic4.txt_dia_chi.setText(result[12])
-        self.uic4.txt_mst.setText(result[8])
+        self.uic4.label_lead_id.setText(str(lead_id_db or lead_id))
+        self.uic4.txt_ten_cong_ty.setText(str(company or ''))
+        self.uic4.txt_ten_khach_hang.setText(str(name or ''))
+        self.uic4.txt_so_dt.setText(str(sdt or ''))
+        self.uic4.txt_yeu_cau.setText(str(yc or ''))
+        self.uic4.txt_dia_chi.setText(str(address or ''))
+        self.uic4.txt_mst.setText(str(mst or ''))
 
         # Hiển thị file đã upload
-        old_files = result[18]
         if old_files:
-            ds_file = old_files.split('@@')
+            ds_file = str(old_files).split('@@')
 
             for f in ds_file:
-                name, fid, *_ = f.split('|')
+                parts = f.split('|')
+                if len(parts) < 2:
+                    continue
+                name, fid = parts[0], parts[1]
                 self.uic4.txt_file.append(
                     f'<a href="{fid}">📎 {name}</a> &nbsp; ----------- &nbsp; '
                     f'<a href="delete:{fid}">🗑️ Xóa file</a><br>'
@@ -163,6 +179,7 @@ class LeadHandle(QMainWindow):
         self.win_newlead = QMainWindow()
         self.uic3 = Ui_NewLead()
         self.uic3.setupUi(self.win_newlead)
+        apply_ui_v2(self.win_newlead)
         self.setWindowTitle(QApplication.translate("Lead update", "Fsale v3.04.2025"))
 
         self.win_newlead.show()
