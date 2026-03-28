@@ -62,7 +62,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.uic = Ui_MainWindow()
         self.uic.setupUi(self)
-        self.app_version = '3.0.6'
+        self.app_version = '3.0.7'
         self.setWindowTitle(QApplication.translate("MainWindow", f"Fsale v{self.app_version}"))
         apply_ui_v2(self)
         self._set_version_label()
@@ -224,6 +224,19 @@ class MainWindow(QMainWindow):
 
         self.uic.label_username.setText(self.user)
 
+        # đảm bảo schema audit sẵn sàng
+        try:
+            misc.ensure_audit_schema()
+        except Exception as e:
+            print(f"init audit schema error: {e}")
+
+        # Giới hạn hiển thị nút "Cơ hội mới" theo user
+        blocked_new_lead_users = {'Vương', 'Huệ', 'Đức'}
+        display_name = str(self.user or '').strip()
+        hide_new_lead_btn = any(k in display_name for k in blocked_new_lead_users)
+        self.uic.but_co_hoi_moi.setVisible(not hide_new_lead_btn)
+        self.uic.but_co_hoi_moi.setEnabled(not hide_new_lead_btn)
+
         result = misc.sql_one("SELECT * from user where phone_number = %s", (self.user_phone,))
         self.user_power = int(result[3])
 
@@ -233,10 +246,16 @@ class MainWindow(QMainWindow):
 
         # Nút update thủ công chỉ hiện sau khi đăng nhập
         self.but_check_update.setVisible(True)
-        self.but_force_update.setVisible(True)
+        # Bỏ nút "Cập nhật ngay" khỏi main GUI theo yêu cầu owner
+        self.but_force_update.setVisible(False)
 
-        if self.user_power > 40:
-            self.uic.but_sua_bang_gia.setEnabled(True)
+        # Chỉ power > 40 mới thấy và dùng được Quản lý kho + Sửa bảng giá
+        # Nút Reports giữ nguyên cho mọi user (đã giới hạn dữ liệu theo quyền ở màn report)
+        is_manager = self.user_power > 40
+        self.uic.but_sua_bang_gia.setVisible(is_manager)
+        self.uic.but_quan_ly_kho.setVisible(is_manager)
+        self.uic.but_sua_bang_gia.setEnabled(is_manager)
+        self.uic.but_quan_ly_kho.setEnabled(is_manager)
 
         self.uic.label_so_co_hoi.setText(misc.header_label(self.user))
         self.uic.label_so_co_hoi.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -332,7 +351,31 @@ class MainWindow(QMainWindow):
             for q in normalize_sql:
                 misc.sql_commit(q)
 
-            # 2) Auto-state from age (theo rule nghiệp vụ mới)
+            # 2) Auto-release lead Anna đã giao việc quá 1 giờ (nếu chưa có BG/ĐH)
+            to_release = misc.sql_all(
+                "SELECT l.lead_id, l.phu_trach, l.status FROM sale_lead l "
+                "WHERE l.nguoi_tao_lead='Anna' "
+                "AND l.status='Anna đã giao việc' "
+                "AND TIMESTAMPDIFF(HOUR, l.time_create, NOW()) >= 1 "
+                "AND NOT EXISTS (SELECT 1 FROM ds_bao_gia q WHERE q.lead_id = l.lead_id) "
+                "AND NOT EXISTS (SELECT 1 FROM ds_don_hang o WHERE o.lead_id = l.lead_id)",
+                None
+            ) or []
+
+            misc.sql_commit(
+                "UPDATE sale_lead l "
+                "SET l.status='Mới', l.phu_trach='', l.time_nhan_viec=NULL "
+                "WHERE l.nguoi_tao_lead='Anna' "
+                "AND l.status='Anna đã giao việc' "
+                "AND TIMESTAMPDIFF(HOUR, l.time_create, NOW()) >= 1 "
+                "AND NOT EXISTS (SELECT 1 FROM ds_bao_gia q WHERE q.lead_id = l.lead_id) "
+                "AND NOT EXISTS (SELECT 1 FROM ds_don_hang o WHERE o.lead_id = l.lead_id)"
+            )
+            for lid, old_owner, old_status in to_release:
+                misc.audit_log('system', 'AUTO_RELEASE', 'status', old_status, 'Mới', lid)
+                misc.audit_log('system', 'UPDATE_OWNER', 'phu_trach', old_owner, '', lid)
+
+            # 3) Auto-state from age (theo rule nghiệp vụ mới)
             base_filter = "status NOT IN ('Đã đặt hàng','Đã thanh toán','Đã giao hàng','Đã trả lại toàn bộ','Done - Thất bại')"
 
             # >10 ngày và chưa có đơn hàng theo lead
@@ -445,9 +488,9 @@ class MainWindow(QMainWindow):
                 row_idx += 1
 
             for item in result:
-                lead_id, yeu_cau, trang_thai, phu_trach = item[0], item[9], item[10], item[11]
+                lead_id, name, sdt, ten_co_hoi, trang_thai, phu_trach = item[0], item[1], item[2], item[9], item[10], item[11]
                 self.uic.tableWidget.setItem(row_idx, 0, QTableWidgetItem(str(lead_id)))
-                self.uic.tableWidget.setItem(row_idx, 1, QTableWidgetItem(yeu_cau))
+                self.uic.tableWidget.setItem(row_idx, 1, QTableWidgetItem(self._lead_display_text(name, sdt, ten_co_hoi)))
                 self.uic.tableWidget.setItem(row_idx, 2, QTableWidgetItem(f"{trang_thai}\n{phu_trach}"))
                 self._apply_status_style_item(self.uic.tableWidget.item(row_idx, 2))
 
@@ -518,7 +561,7 @@ class MainWindow(QMainWindow):
 
         for row in range(len(result)):
             self.uic.tableWidget.setItem(row, 0, QTableWidgetItem(str(result[row][0])))
-            self.uic.tableWidget.setItem(row, 1, QTableWidgetItem(result[row][9]))
+            self.uic.tableWidget.setItem(row, 1, QTableWidgetItem(self._lead_display_text(result[row][1], result[row][2], result[row][9])))
             txt = str(result[row][10]) + '\n' + str(result[row][11])
             self.uic.tableWidget.setItem(row, 2, QTableWidgetItem(txt))
             self._apply_status_style_item(self.uic.tableWidget.item(row, 2))
@@ -543,6 +586,15 @@ class MainWindow(QMainWindow):
                 else:
                     self.uic.tableWidget.setCellWidget(row, 3, but2)
 
+    def _lead_display_text(self, name, sdt, ten_co_hoi):
+        line1 = f"{str(name or '').strip()} - {str(sdt or '').strip()}".strip(' -')
+        line2 = str(ten_co_hoi or '').strip()
+        if not line1:
+            line1 = '(chưa có tên/SĐT liên hệ)'
+        if not line2:
+            line2 = '(chưa có tên cơ hội)'
+        return f"{line1}\n{line2}"
+
     def _not_found(self, keyword="tìm kiếm"):
         self.uic.label_noti.setStyleSheet("color: red")
         self.uic.label_noti.setText(f"❌ Không tìm thấy kết quả theo {keyword.lower()}.")
@@ -555,33 +607,62 @@ class MainWindow(QMainWindow):
         if not search_text:
             return
 
-        # Kiểm tra SĐT: cho phép nhập kèm dấu cách/chấm/gạch
+        try:
+            user_power = int(getattr(self, 'user_power', 0) or 0)
+        except Exception:
+            user_power = 0
+
+        # Giới hạn phạm vi theo combo_user nếu power < 40
+        allowed_assignees = []
+        if user_power < 40:
+            for i in range(self.uic.combo_user.count()):
+                name = self.uic.combo_user.itemText(i).strip()
+                if name and name != 'All':
+                    allowed_assignees.append(name)
+            if not allowed_assignees and getattr(self, 'user', None):
+                allowed_assignees = [self.user]
+
+        where_parts = ["check_delete != '1'"]
+        params = []
+
+        if self.status != "All":
+            where_parts.append("status = %s")
+            params.append(self.status)
+
+        if user_power < 40 and allowed_assignees:
+            placeholders = ",".join(["%s"] * len(allowed_assignees))
+            where_parts.append(f"phu_trach IN ({placeholders})")
+            params.extend(allowed_assignees)
+
+        base_where = " AND ".join(where_parts)
+
+        # 1) Tìm theo SĐT (10 số)
         phone_digits = re.sub(r"\D", "", search_text)
         if re.match(r"^0\d{9}$", phone_digits):
             if '\n' in raw_text:
                 self.uic.tex_search.setText(phone_digits)
-            query = "SELECT * FROM sale_lead WHERE check_delete != '1'"
-            params = ()
-            if self.status != "All":
-                query += " AND status = %s"
-                params = (self.status,)
-            results = misc.sql_all(query, params)
-            matched = [r for r in results if phone_digits in str(r)]
-            return self.show_search_result(matched) if matched else self._not_found("SĐT")
+            query = f"SELECT * FROM sale_lead WHERE {base_where} AND sdt = %s"
+            results = misc.sql_all(query, tuple(params + [phone_digits]))
+            return self.show_search_result(results) if results else self._not_found("SĐT")
 
-        # Kiểm tra số báo giá (toàn số, <= 6 chữ số)
+        # 2) Tìm theo số báo giá
         if search_text.isdigit() and len(search_text) <= 6:
             result = misc.sql_one("SELECT lead_id FROM ds_bao_gia WHERE so_bg = %s", (search_text,))
             if result:
                 lead_id = result[0]
-                leads = misc.sql_all("SELECT * FROM sale_lead WHERE lead_id = %s AND check_delete != '1'", (lead_id,))
+                query = f"SELECT * FROM sale_lead WHERE {base_where} AND lead_id = %s"
+                leads = misc.sql_all(query, tuple(params + [lead_id]))
                 return self.show_search_result(leads) if leads else self._not_found("Số BG")
-            else:
-                return self._not_found("Số BG")
+            return self._not_found("Số BG")
 
-        # Mặc định tìm theo tên
-        results = misc.sql_all("SELECT * FROM sale_lead WHERE name LIKE %s", (f"%{search_text}%",))
-        return self.show_search_result(results) if results else self._not_found("Tên KH")
+        # 3) Mở rộng tìm theo: lead_id, tên cơ hội (ten_co_hoi), tên người liên hệ (name)
+        query = (
+            f"SELECT * FROM sale_lead WHERE {base_where} "
+            "AND (CAST(lead_id AS CHAR) LIKE %s OR ten_co_hoi LIKE %s OR name LIKE %s)"
+        )
+        kw = f"%{search_text}%"
+        results = misc.sql_all(query, tuple(params + [kw, kw, kw]))
+        return self.show_search_result(results) if results else self._not_found("Lead/Tên cơ hội/Tên liên hệ")
 
     def _parse_return_request_from_log(self, lich_su_gd):
         if not lich_su_gd:
@@ -731,9 +812,9 @@ class MainWindow(QMainWindow):
                 btn.clicked.connect(lambda _, lid=t['lead_id'], sb=t['so_bg']: self._handle_return_task(lid, sb))
                 self.uic.tableWidget.setCellWidget(row_idx, 3, btn)
             else:
-                lead_id, ten_co_hoi, trang_thai, phu_trach = r['data']
+                lead_id, ten_lh, sdt_lh, ten_co_hoi, trang_thai, phu_trach = r['data']
                 self.uic.tableWidget.setItem(row_idx, 0, QTableWidgetItem(str(lead_id)))
-                self.uic.tableWidget.setItem(row_idx, 1, QTableWidgetItem(str(ten_co_hoi or '')))
+                self.uic.tableWidget.setItem(row_idx, 1, QTableWidgetItem(self._lead_display_text(ten_lh, sdt_lh, ten_co_hoi)))
                 txt = str(trang_thai or '') + '\n' + str(phu_trach or '')
                 self.uic.tableWidget.setItem(row_idx, 2, QTableWidgetItem(txt))
                 self._apply_status_style_item(self.uic.tableWidget.item(row_idx, 2))
@@ -770,7 +851,7 @@ class MainWindow(QMainWindow):
 
             if int(kq[0]) < 40:
                 code = (
-                    "SELECT lead_id, ten_co_hoi, status, phu_trach "
+                    "SELECT lead_id, name, sdt, ten_co_hoi, status, phu_trach "
                     "FROM sale_lead WHERE phu_trach = %s AND check_delete != '1' "
                     "AND time_create >= DATE_SUB(NOW(), INTERVAL 90 DAY) "
                     "ORDER BY lead_id DESC LIMIT 500"
@@ -778,7 +859,7 @@ class MainWindow(QMainWindow):
                 result = misc.sql_all(code, (self.user,))
             else:
                 code = (
-                    "SELECT lead_id, ten_co_hoi, status, phu_trach "
+                    "SELECT lead_id, name, sdt, ten_co_hoi, status, phu_trach "
                     "FROM sale_lead WHERE status != 'Mới' AND check_delete != '1' "
                     "AND time_create >= DATE_SUB(NOW(), INTERVAL 90 DAY) "
                     "ORDER BY lead_id DESC LIMIT 500"
@@ -841,7 +922,7 @@ class MainWindow(QMainWindow):
                 for row in range(len(result)):
                     self.uic.tableWidget.setItem(row, 0, QTableWidgetItem(str(result[row][0])))
 
-                    self.uic.tableWidget.setItem(row, 1, QTableWidgetItem(result[row][9]))
+                    self.uic.tableWidget.setItem(row, 1, QTableWidgetItem(self._lead_display_text(result[row][1], result[row][2], result[row][9])))
                     txt = result[row][10] + '\n' + result[row][11]
                     self.uic.tableWidget.setItem(row, 2, QTableWidgetItem(txt))
                     self._apply_status_style_item(self.uic.tableWidget.item(row, 2))
@@ -875,9 +956,16 @@ class MainWindow(QMainWindow):
         kq = misc.sql_one(code, (self.user,))
 
         if kq[0] == 0:
+            old = misc.sql_one("SELECT phu_trach, status FROM sale_lead WHERE lead_id = %s", (lead_id,))
+            old_owner = old[0] if old else ''
+            old_status = old[1] if old else ''
+
             misc.sql_commit("UPDATE user SET check_busy = 1 WHERE full_name = %s", (self.user,))
             misc.sql_commit("UPDATE sale_lead SET phu_trach = %s, status = 'Đã nhận việc', time_nhan_viec = NOW() "
                           "WHERE lead_id = %s", (self.user, lead_id,))
+
+            misc.audit_log(self.user, 'UPDATE_OWNER', 'phu_trach', old_owner, self.user, lead_id)
+            misc.audit_log(self.user, 'UPDATE_STATUS', 'status', old_status, 'Đã nhận việc', lead_id)
 
             self.show_lead(self.user)
 

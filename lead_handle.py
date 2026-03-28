@@ -46,7 +46,7 @@ class LeadHandle(QMainWindow):
         self.uic4.label_username.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.uic4.label_username.setText(str(self.user or ''))
 
-        status_list = ['Mới', 'Đã nhận việc', 'Đã quá hạn báo giá', 'Cần cập nhật lại', 'Đã quá 10 ngày', 'Đã báo giá', 'Đã đặt hàng', 'Đã thanh toán', 'Đã giao hàng', 'Đã trả lại toàn bộ', 'Done - Thất bại']
+        status_list = ['Mới', 'Anna đã giao việc', 'Đã nhận việc', 'Đã quá hạn báo giá', 'Cần cập nhật lại', 'Đã quá 10 ngày', 'Đã báo giá', 'Đã đặt hàng', 'Đã thanh toán', 'Đã giao hàng', 'Đã trả lại toàn bộ', 'Done - Thất bại']
         self.uic4.comboBox.addItems(status_list)
         self.uic4.comboBox.setCurrentText((status or 'Mới'))
 
@@ -58,7 +58,8 @@ class LeadHandle(QMainWindow):
         self.uic4.txt_dia_chi.setText(str(address or ''))
         self.uic4.txt_mst.setText(str(mst or ''))
 
-        # Hiển thị file đã upload
+        # Hiển thị file đã upload (phần trên)
+        self.uic4.txt_file.clear()
         if old_files:
             ds_file = str(old_files).split('@@')
 
@@ -71,6 +72,25 @@ class LeadHandle(QMainWindow):
                     f'<a href="{fid}">📎 {name}</a> &nbsp; ----------- &nbsp; '
                     f'<a href="delete:{fid}">🗑️ Xóa file</a><br>'
                 )
+        else:
+            self.uic4.txt_file.append('<span style="color:#6b7280;">(Chưa có file đính kèm)</span><br>')
+
+        # Nhật ký lead (phần dưới)
+        self.uic4.txt_file.append('<br><b>──────── Nhật ký lead ────────</b><br>')
+        try:
+            misc.ensure_audit_schema()
+            logs = misc.sql_all(
+                "SELECT log_line FROM sale_lead_audit_log WHERE lead_id = %s ORDER BY id DESC LIMIT 200",
+                (lead_id_db,)
+            ) or []
+        except Exception:
+            logs = []
+        if logs:
+            for row in logs:
+                line = str(row[0] or '').replace('<', '&lt;').replace('>', '&gt;')
+                self.uic4.txt_file.append(f'• {line}<br>')
+        else:
+            self.uic4.txt_file.append('<span style="color:#6b7280;">(Chưa có nhật ký)</span><br>')
 
         self.uic4.but_upload.clicked.connect(lambda: file_handle.handle_upload(lead_id, self.uic4))
         self.uic4.txt_file.anchorClicked.connect(
@@ -271,6 +291,10 @@ class LeadHandle(QMainWindow):
             status = 'Mới' if phu_trach == 'waiting' else 'Đã nhận việc'
             val = (lead_id, ten_khach, sdt, cong_ty, mst, yeu_cau, status, phu_trach, self.user, ten_lead, diachi)
             misc.sql_commit(sql, val)
+            misc.audit_log(self.user, 'CREATE_LEAD', 'lead_id', '-', lead_id, lead_id)
+            misc.audit_log(self.user, 'UPDATE_STATUS', 'status', '-', status, lead_id)
+            misc.audit_log(self.user, 'UPDATE_OWNER', 'phu_trach', '-', phu_trach, lead_id)
+            misc.audit_log(self.user, 'UPDATE_TITLE', 'ten_co_hoi', '-', ten_lead, lead_id)
 
             # Gửi tin nhắn Telegram
             if phu_trach == 'waiting':
@@ -296,6 +320,16 @@ class LeadHandle(QMainWindow):
             self.uic3.but_sua_lead.clicked.connect(lambda: LeadHandle.sua_lead(self, lead_id))
 
     def upload_file(self, lead_id, uic):
+        ok, msg = misc.check_lead_ready_for_workflow(lead_id)
+        if not ok:
+            try:
+                self.uic3.label_noti.setStyleSheet("color: red")
+                self.uic3.label_noti.setText(msg)
+            except Exception:
+                pass
+            uic.txt_file.append(f'<span style="color:red;">⛔ {msg}</span>')
+            return
+
         uic.txt_file.append('<span style="color:green;">⏳ Đang tải file lên Google Drive...</span>')
 
         uploaded = file_handle.upload_file()
@@ -408,7 +442,25 @@ class LeadHandle(QMainWindow):
                                 else:
                                     misc.send_to_telegram(self.user + ' đã sửa thông tin lead ' + str(lead_id) + '.')
 
+                            old = misc.sql_one("SELECT name, sdt, company, mst, yc, status, phu_trach, ten_co_hoi, address FROM sale_lead WHERE lead_id = %s", (lead_id,))
                             misc.sql_commit(sql, val)
+
+                            if old:
+                                fields = [
+                                    ('name', old[0], ten_khach),
+                                    ('sdt', old[1], sdt),
+                                    ('company', old[2], cong_ty),
+                                    ('mst', old[3], mst),
+                                    ('yc', old[4], yeu_cau),
+                                    ('status', old[5], val[5]),
+                                    ('phu_trach', old[6], phu_trach),
+                                    ('ten_co_hoi', old[7], ten_lead),
+                                    ('address', old[8], diachi),
+                                ]
+                                for f, ov, nv in fields:
+                                    if str(ov or '') != str(nv or ''):
+                                        act = 'UPDATE_STATUS' if f == 'status' else ('UPDATE_OWNER' if f == 'phu_trach' else 'UPDATE_LEAD')
+                                        misc.audit_log(self.user, act, f, ov, nv, lead_id)
 
                             # Ghi lịch sử tạo lead của user
                             ttkh = [ten_khach, sdt, cong_ty, mst, phu_trach, lead_id, diachi]
@@ -458,16 +510,19 @@ class LeadHandle(QMainWindow):
         # Nếu có mã số thuế, ghi thông tin công ty vào bảng ds_cong_ty
         if mst.strip() != '':
 
-            kq = misc.sql_one("SELECT * from ds_cong_ty WHERE mst = %s", (mst,))
-            if kq is None:   # Nếu không có mã số thuế trong cơ sở dữ liệu
+            row = misc.sql_one("SELECT leads FROM ds_cong_ty WHERE mst = %s", (mst,))
+            if row is None:   # Nếu không có mã số thuế trong cơ sở dữ liệu
                 # Lưu ý:  cell nguoi_lien_he là text (ten_nguoi_lien_he|số điện thoại), mỗi người 1 dòng
                 # ttkh = [ten_khach, sdt, cong_ty, mst, phu_trach, lead_id, diachi]
                 misc.sql_commit("INSERT into ds_cong_ty (ten_cong_ty, dia_chi, mst, leads, nguoi_lien_he, sdt_nguoi_lh, phu_trach) "
                               "VALUES (%s, %s, %s, %s, %s, %s, %s)", (tencongty, diachi, mst, leadid, tenkhach, sdt, nguoiphutrach,))
 
             else:
-                kq = misc.sql_one("SELECT * from ds_cong_ty WHERE mst = %s", (mst,))
-                new_lead_id = kq[2] + '|' + leadid
+                old_leads = str(row[0] or '').strip()
+                lead_tokens = [x for x in old_leads.split('|') if x]
+                if str(leadid) not in lead_tokens:
+                    lead_tokens.append(str(leadid))
+                new_lead_id = '|'.join(lead_tokens)
 
                 misc.sql_commit("UPDATE ds_cong_ty SET leads = %s, ten_cong_ty = %s, nguoi_lien_he = %s, sdt_nguoi_lh = %s, dia_chi = %s "
                                 "WHERE mst = %s", (new_lead_id, tencongty, ttkh[0], ttkh[1], diachi, mst,))

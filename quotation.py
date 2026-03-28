@@ -498,6 +498,11 @@ class Quotato(QMainWindow):
         self.uic5.but_hop_dong.clicked.connect(lambda: Quotato.tao_hop_dong(self))
         self.uic5.but_save_thong_tin.clicked.connect(lambda: Quotato.save_quote_customer_info(self, lead_id, self.uic5))
 
+        # bật nút sớm để tránh trường hợp lỗi load dữ liệu làm kẹt thao tác thêm/xóa dòng
+        self.uic5.but_them_dong.setEnabled(True)
+        self.uic5.but_xoa_dong.setEnabled(True)
+        self.uic5.but_luu_file.setEnabled(True)
+
         header = ['Mô tả sản phẩm', 'Model', 'Nhãn hiệu', 'ĐV tính', 'Số lượng', 'Đơn giá', 'Thuế']
         self.uic5.tableWidget.setHorizontalHeaderLabels(header)
 
@@ -514,10 +519,6 @@ class Quotato(QMainWindow):
             except Exception as e:
                 print(e)
             QuotationSaver.sum_save(self, so_bg, self.uic5)
-
-        self.uic5.but_them_dong.setEnabled(True)
-        self.uic5.but_xoa_dong.setEnabled(True)
-        self.uic5.but_luu_file.setEnabled(True)
 
     def upload_file(self, lead_id, uic):
         uic.txt_file.append('<span style="color:green;">⏳ Đang tải file lên Google Drive...</span>')
@@ -601,8 +602,9 @@ class Quotato(QMainWindow):
         row_position = table.rowCount()
         table.insertRow(row_position)
 
-        # Mặc định tạo 7 cột
-        for col in range(7):
+        # Tạo theo đúng số cột hiện tại (tránh lệch khi UI đổi số cột)
+        col_count = max(1, table.columnCount())
+        for col in range(col_count):
             table.setItem(row_position, col, QTableWidgetItem(""))
 
         # Gắn autocomplete cho 2 cột đầu
@@ -617,6 +619,13 @@ class Quotato(QMainWindow):
 
         try:
             # tạo đơn hàng
+            ok, msg = misc.check_lead_ready_for_workflow(lead_id)
+            if not ok:
+                uick.label_noti.setStyleSheet('color: red')
+                uick.label_noti.setText(msg)
+                uick.label_noti.repaint()
+                return
+
             kq = misc.sql_one("Select * from ds_bao_gia where so_bg = %s", (so_bg, ))
 
             if kq and int(kq[15]) > 0:
@@ -694,6 +703,10 @@ class Quotato(QMainWindow):
         uic = self.uic5.tableWidget
 
         selected_row = uic.currentRow()
+        # fallback: nếu chưa chọn dòng nào, xóa dòng cuối cùng để người dùng không bị "bấm không ăn"
+        if selected_row == -1 and uic.rowCount() > 0:
+            selected_row = uic.rowCount() - 1
+
         if selected_row != -1:
             uic.removeRow(selected_row)
 

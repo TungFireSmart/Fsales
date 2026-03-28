@@ -1538,6 +1538,41 @@ class Crm(QMainWindow):
             self.uic9.tableWidget.clear()
             pass
 
+    def _load_company_contacts(self, mst):
+        mst = (mst or '').strip()
+        if not mst:
+            return []
+        rows = misc.sql_all(
+            "SELECT ten, dien_thoai, email FROM ds_ca_nhan WHERE mst_cong_ty = %s ORDER BY dien_thoai DESC",
+            (mst,)
+        ) or []
+        out = []
+        seen = set()
+        for r in rows:
+            ten = str(r[0] or '').strip()
+            sdt = str(r[1] or '').strip()
+            email = str(r[2] or '').strip()
+            key = (ten, sdt, email)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((ten, sdt, email))
+        return out
+
+    def _render_company_contacts_note(self, mst, company_name=''):
+        contacts = Crm._load_company_contacts(self, mst)
+        if not contacts:
+            self.uic9.label_noti.setText(company_name or '')
+            return
+
+        lines = [f"{company_name}".strip(), f"Liên hệ công ty: {len(contacts)} người"]
+        for i, (ten, sdt, email) in enumerate(contacts, start=1):
+            item = f"{i}) {ten or '(chưa tên)'} - {sdt or '(chưa SĐT)'}"
+            if email:
+                item += f" - {email}"
+            lines.append(item)
+        self.uic9.label_noti.setText("\n".join([x for x in lines if x]))
+
     def view_detail_company(self, mst, so_bg=None):
         # Khởi tạo màn hình
         self.win_detailcompanyview = QMainWindow()
@@ -1565,9 +1600,9 @@ class Crm(QMainWindow):
             self.uic9.label_noti.setText("❌ Không tìm thấy công ty theo MST.")
             return
 
-        self.uic9.label_noti.setText(kq[1])
+        Crm._render_company_contacts_note(self, mst, kq[1])
         if so_bg:
-            self.uic9.label_noti.setText('Soạn hợp đồng theo báo giá số ' + str(so_bg))
+            self.uic9.label_noti.setText(self.uic9.label_noti.text() + '\n' + 'Soạn hợp đồng theo báo giá số ' + str(so_bg))
             self.uic9.label_so_hd.setText(so_bg)
 
         self.uic9.label_ma_kh.setText(str(kq[0]))
@@ -1816,6 +1851,9 @@ class Crm(QMainWindow):
                     """,
                     (nguoi_lh, sdt_nlh, email_nlh, ten_cty, mst)
                 )
+
+            # B8: Hiển thị đầy đủ danh sách người liên hệ của công ty trong CRM
+            Crm._render_company_contacts_note(self, mst, ten_cty)
 
         except Exception as e:
             self.uic9.label_noti.setStyleSheet("color: red")

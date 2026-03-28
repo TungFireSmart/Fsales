@@ -23,6 +23,7 @@ import misc
 from stock_handle import StockHandle
 from UI.don_hang import Ui_Don_hang
 from UI.don_cho_thue import Ui_Don_hang_cho_thue
+from ui_theme import apply_ui_v2
 
 
 class ReturnGoodsDialog(QDialog):
@@ -277,6 +278,7 @@ class OrderHandle(QMainWindow):
         self.win_order = QMainWindow()
         self.uic6 = Ui_Don_hang()
         self.uic6.setupUi(self.win_order)
+        apply_ui_v2(self.win_order)
         self.win_order.show()
         self.setWindowTitle(QApplication.translate("Thong tin don hang", "Fsale v2.1.1"))
         self.user_power = None
@@ -340,6 +342,7 @@ class OrderHandle(QMainWindow):
         self.win_cho_thue = QMainWindow()
         self.uic13 = Ui_Don_hang_cho_thue()
         self.uic13.setupUi(self.win_cho_thue)
+        apply_ui_v2(self.win_cho_thue)
         # Vô hiệu hóa checkbox công ty / cá nhân (LUÔN TÍNH VAT)
         self.uic13.check_congty.setChecked(True)
         self.uic13.check_congty.setDisabled(True)
@@ -496,6 +499,7 @@ class OrderHandle(QMainWindow):
             self.win_order = QMainWindow()
             self.uic6 = Ui_Don_hang()
             self.uic6.setupUi(self.win_order)
+            apply_ui_v2(self.win_order)
             # Vô hiệu hóa checkbox công ty / cá nhân (LUÔN TÍNH VAT)
             self.uic6.check_congty.setChecked(True)
             self.uic6.check_congty.setDisabled(True)
@@ -771,11 +775,18 @@ class OrderHandle(QMainWindow):
 
         misc.sql_commit("UPDATE ds_bao_gia SET dat_hang = 'T' WHERE so_bg = %s", (so_bg,))
 
+        old_status_row = misc.sql_one("SELECT status FROM sale_lead WHERE lead_id = %s", (lead_id,))
+        old_status = old_status_row[0] if old_status_row else ''
         misc.sql_commit("UPDATE sale_lead SET dat_hang = 'T', status = 'Đã đặt hàng' WHERE lead_id = %s", (lead_id,))
+        misc.audit_log(self.user, 'CREATE_ORDER', 'so_bg', '-', so_bg, lead_id)
+        misc.audit_log(self.user, 'UPDATE_STATUS', 'status', old_status, 'Đã đặt hàng', lead_id)
 
         if int(phai_thu) <= 0:
             misc.sql_commit("UPDATE ds_bao_gia SET thanh_toan = 'T' WHERE so_bg = %s", (so_bg,))
+            old_paid = misc.sql_one("SELECT status FROM sale_lead WHERE lead_id = %s", (lead_id,))
+            old_paid_status = old_paid[0] if old_paid else ''
             misc.sql_commit("UPDATE sale_lead SET status = 'Đã thanh toán' WHERE lead_id = %s", (lead_id,))
+            misc.audit_log(self.user, 'UPDATE_STATUS', 'status', old_paid_status, 'Đã thanh toán', lead_id)
 
         self.uic6.label_mo_ta_lead.setStyleSheet('color: red')
         self.uic6.label_mo_ta_lead.setText('Đã tạo đơn hàng, tiếp tục tạo phiếu xuất kho?')

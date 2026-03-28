@@ -86,6 +86,71 @@ def sql_commit(query, params=None, max_retry=3):
             time.sleep(0.5)
 
 
+def ensure_audit_schema():
+    sql_commit(
+        """
+        CREATE TABLE IF NOT EXISTS sale_lead_audit_log (
+            id BIGINT NOT NULL AUTO_INCREMENT,
+            lead_id BIGINT NULL,
+            log_line TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_lead_id (lead_id),
+            KEY idx_created_at (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """,
+        None,
+    )
+
+
+def audit_log(actor, action, field, old_value, new_value, lead_id=None):
+    try:
+        ensure_audit_schema()
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        old_txt = "(trống)" if old_value is None or str(old_value).strip() == "" else str(old_value)
+        new_txt = "(trống)" if new_value is None or str(new_value).strip() == "" else str(new_value)
+        line = f"[{ts}] {actor} | {action} | {field}: {old_txt} -> {new_txt}"
+        sql_commit("INSERT INTO sale_lead_audit_log (lead_id, log_line) VALUES (%s, %s)", (lead_id, line))
+    except Exception as e:
+        print(f"audit_log error: {e}")
+
+
+LEAD_TITLE_PLACEHOLDER_ANNA = 'Anna chờ sales đặt tên lead này'
+LEAD_STATUS_ANNA_ASSIGNED = 'Anna đã giao việc'
+LEAD_READY_STATUS = {
+    'Đã nhận việc',
+    'Đã quá hạn báo giá',
+    'Cần cập nhật lại',
+    'Đã quá 10 ngày',
+    'Đã báo giá',
+    'Đã đặt hàng',
+    'Đã thanh toán',
+    'Đã giao hàng',
+    'Đã trả lại toàn bộ',
+    'Done - Thất bại',
+}
+
+
+def check_lead_ready_for_workflow(lead_id):
+    row = sql_one("SELECT ten_co_hoi, status FROM sale_lead WHERE lead_id = %s", (lead_id,))
+    if not row:
+        return False, f"Không tìm thấy lead #{lead_id}"
+
+    ten_co_hoi = (row[0] or '').strip()
+    status = (row[1] or '').strip()
+
+    if ten_co_hoi == LEAD_TITLE_PLACEHOLDER_ANNA:
+        return False, "Lead chưa được đặt tên cơ hội. Vui lòng đổi tên trước khi thao tác tiếp."
+
+    if status == LEAD_STATUS_ANNA_ASSIGNED:
+        return False, "Lead đang ở trạng thái 'Anna đã giao việc'. Vui lòng chuyển sang 'Đã nhận việc' (hoặc trạng thái sau đó) để tiếp tục."
+
+    if status not in LEAD_READY_STATUS:
+        return False, "Lead chưa sẵn sàng xử lý. Vui lòng cập nhật trạng thái sang 'Đã nhận việc' (hoặc trạng thái sau đó)."
+
+    return True, "OK"
+
+
 def tao_bao_gia(lead_id, user):
 
     now = datetime.datetime.now()
@@ -102,12 +167,18 @@ def tao_bao_gia(lead_id, user):
     sobaogia = 1 if kq[0] is None else int(kq[0]) + 1
 
     lead_id = int(lead_id)
+
+    ok, msg = check_lead_ready_for_workflow(lead_id)
+    if not ok:
+        raise ValueError(msg)
+
     d = now.strftime("%d/%m/%y")
 
     sql_commit(
         "INSERT INTO ds_bao_gia (so_bg, lead_id, ngaythang, sotien, user, tieu_de) VALUES (%s, %s, %s, %s, %s, %s)",
         (sobaogia, lead_id, d, 0, user, 'Cần đổi tên của báo giá này!')
     )
+    audit_log(user, 'CREATE_QUOTE', 'so_bg', '-', sobaogia, lead_id)
 
     return 'Thông tin hợp lệ – báo giá đã được tạo', sobaogia
 

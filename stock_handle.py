@@ -19,6 +19,7 @@ from UI.phieu_xuat_kho_thue import Ui_xuat_kho_thue
 import stock_ui_utils
 
 from PyQt6.QtGui import QIntValidator
+from ui_theme import apply_ui_v2
 
 
 class NumericDelegate(QStyledItemDelegate):
@@ -57,6 +58,7 @@ class StockHandle(QMainWindow):
         self.win_stock = QMainWindow()
         self.uic7 = Ui_NhapXuat()
         self.uic7.setupUi(self.win_stock)
+        apply_ui_v2(self.win_stock)
         self.win_stock.show()
         self.setWindowTitle(QApplication.translate("Xử lý đơn hàng", "Fsale v2.1.1"))
         self.user = []
@@ -66,6 +68,7 @@ class StockHandle(QMainWindow):
         self.win_nhap = QMainWindow()
         self.uic8 = Ui_NhapKho()
         self.uic8.setupUi(self.win_nhap)
+        apply_ui_v2(self.win_nhap)
 
 
 
@@ -73,6 +76,7 @@ class StockHandle(QMainWindow):
         self.win_stock = QMainWindow()
         self.uic7 = Ui_NhapXuat()
         self.uic7.setupUi(self.win_stock)
+        apply_ui_v2(self.win_stock)
         self.uic7.but_save_phieu_xuat.setHidden(True)
         self.uic7.but_xuat_kho.setHidden(True)
         self.uic7.group_xuatkho.hide()
@@ -744,6 +748,7 @@ class StockHandle(QMainWindow):
         self.win_nhap = QMainWindow()
         self.uic8 = Ui_NhapKho()
         self.uic8.setupUi(self.win_nhap)
+        apply_ui_v2(self.win_nhap)
         self.win_nhap.show()
 
         self.uic8.dateEdit.setDate(QDate.currentDate())
@@ -1637,6 +1642,14 @@ class StockHandle(QMainWindow):
                 # Đánh dấu table ds_bao_gia là báo giá đã thành công, ko sửa được nữa
                 misc.sql_commit("UPDATE ds_bao_gia SET thanh_cong = 'T' WHERE so_bg = %s", (so_bg,))
 
+                lead_row = misc.sql_one("SELECT lead_id, status FROM sale_lead WHERE dat_hang='T' AND lead_id IN (SELECT lead_id FROM ds_don_hang WHERE so_bg=%s)", (so_bg,))
+                if lead_row:
+                    lid, old_status = lead_row[0], lead_row[1]
+                    if str(old_status or '') != 'Đã giao hàng':
+                        misc.sql_commit("UPDATE sale_lead SET status='Đã giao hàng' WHERE lead_id=%s", (lid,))
+                        misc.audit_log(self.user, 'EXPORT_STOCK', 'status', old_status, 'Đã giao hàng', lid)
+                misc.audit_log(self.user, 'EXPORT_STOCK', 'so_bg', '-', so_bg, lead_row[0] if lead_row else None)
+
             except Exception as e:
                 print(e)
                 tex = 'Có lỗi khi save file.'
@@ -1708,6 +1721,7 @@ class StockHandle(QMainWindow):
         self.win_xuat_thue = QMainWindow()
         self.uic14 = Ui_xuat_kho_thue()
         self.uic14.setupUi(self.win_xuat_thue)
+        apply_ui_v2(self.win_xuat_thue)
         self.win_xuat_thue.show()
 
         self.uic14.combo_kho.addItems(["Kho Hà Nội", "Kho HCM"])
