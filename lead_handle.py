@@ -180,7 +180,7 @@ class LeadHandle(QMainWindow):
         self.uic3 = Ui_NewLead()
         self.uic3.setupUi(self.win_newlead)
         apply_ui_v2(self.win_newlead)
-        self.setWindowTitle(QApplication.translate("Lead update", "Fsale v3.04.2025"))
+        self.setWindowTitle(QApplication.translate("Lead update", "Fsale"))
 
         self.win_newlead.show()
 
