@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timedelta
 import pytz
 from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 
 from PyQt6.QtCore import QUrl
 from UI.lead_update import Ui_LeadUpdate
