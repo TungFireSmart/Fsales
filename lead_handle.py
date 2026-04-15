@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timedelta
 import pytz
 from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QSignalBlocker
 
 from PyQt6.QtCore import QUrl
 from UI.lead_update import Ui_LeadUpdate
@@ -101,9 +101,34 @@ class LeadHandle(QMainWindow):
         self.uic4.but_bo_qua_co_hoi.clicked.connect(lambda: LeadHandle.refuse_lead(self, result[0]))
         self.uic4.but_xoa_lead.clicked.connect(lambda: LeadHandle.delete_lead(self, result[0]))
 
+        self.uic4.txt_mst.textChanged.connect(lambda: LeadHandle.autofill_update_lead_profile(self))
+        self.uic4.txt_so_dt.textChanged.connect(lambda: LeadHandle.autofill_update_lead_profile(self))
+
         self.uic4.but_baogia.clicked.connect(lambda: LeadHandle.show_quotato_from_lead(self, lead_id))
 
         self.uic4.but_sua_tt.clicked.connect(lambda: LeadHandle.sua_tt_kh(self))
+
+    def autofill_update_lead_profile(self):
+        sdt = re.sub(r'\D', '', self.uic4.txt_so_dt.toPlainText())
+        mst = re.sub(r'\D', '', self.uic4.txt_mst.toPlainText())
+        profile = misc.lookup_customer_profile(phone=sdt, mst=mst)
+
+        def _set_if_blank(widget, value):
+            if value is None:
+                return
+            value = str(value).strip()
+            if not value:
+                return
+            if not widget.toPlainText().strip():
+                blocker = QSignalBlocker(widget)
+                widget.setText(value)
+                del blocker
+
+        _set_if_blank(self.uic4.txt_ten_khach_hang, profile.get('person_name') or profile.get('contact_name'))
+        _set_if_blank(self.uic4.txt_so_dt, profile.get('person_phone') or profile.get('contact_phone'))
+        _set_if_blank(self.uic4.txt_ten_cong_ty, profile.get('company_name'))
+        _set_if_blank(self.uic4.txt_mst, profile.get('tax_code'))
+        _set_if_blank(self.uic4.txt_dia_chi, profile.get('address'))
 
     def sua_tt_kh(self):
         tenkhachhang = self.uic4.txt_ten_khach_hang.toPlainText().strip()
@@ -236,32 +261,52 @@ class LeadHandle(QMainWindow):
         sdt = re.sub(r'\D', '', self.uic3.txt_so_dt.toPlainText())
         mst = re.sub(r'\D', '', self.uic3.txt_mst.toPlainText())
 
-        if sdt != '' and len(sdt.strip()) == 10:
-            self.uic3.txt_file.clear()
-            kq_sdt = misc.sql_all("SELECT * from ds_ca_nhan WHERE dien_thoai = %s", (sdt,))
-            if kq_sdt:
-                self.uic3.txt_ten_khach_hang.setText(kq_sdt[0][0])
-                kq_lead = misc.sql_all("SELECT * from sale_lead WHERE sdt = %s", (sdt,))
+        self.uic3.txt_file.clear()
 
-                if kq_lead:
-                    self.uic3.txt_file.append('Đã từng có ' + str(len(kq_lead)) + ' cơ hội bán hàng')
-                    kq_tc = misc.sql_all("SELECT * from sale_lead WHERE sdt = %s AND dat_hang = 'T'", (sdt,))
-                    self.uic3.txt_file.append('và có ' + str(len(kq_tc)) + ' đơn hàng thành công.\n')
-                    nlh = ", ".join(set([ele[13] for ele in kq_tc]))
-                    self.uic3.txt_file.append('Người đã từng liên hệ: ' + nlh + '.')
+        def _set_if_blank(widget, value):
+            if value is None:
+                return
+            value = str(value).strip()
+            if not value:
+                return
+            if not widget.toPlainText().strip():
+                blocker = QSignalBlocker(widget)
+                widget.setText(value)
+                del blocker
 
-                    self.uic3.txt_file.repaint()
+        def _set_always(widget, value):
+            if value is None:
+                return
+            value = str(value).strip()
+            if value:
+                blocker = QSignalBlocker(widget)
+                widget.setText(value)
+                del blocker
 
-        if mst != '':
+        profile = misc.lookup_customer_profile(phone=sdt, mst=mst)
 
-            kq_mst = misc.sql_all("SELECT * from ds_cong_ty WHERE mst = %s", (mst,))
-            if kq_mst:
-                self.uic3.txt_ten_cong_ty.setText(str(kq_mst[0][0]))
-                # self.uic3.txt_email.setText(kq_mst[0][7])
-                if kq_mst[0][2] != '':
-                    self.uic3.txt_file.append(f'Công ty {kq_mst[0][0]} đã từng có lịch sử giao dịch.  Hãy nhấn nút phía dưới để xem chi tiết.')
-                    self.uic3.txt_file.repaint()
-                    self.uic3.but_lich_su.setEnabled(True)
+        _set_if_blank(self.uic3.txt_ten_khach_hang, profile.get('person_name') or profile.get('contact_name'))
+        _set_if_blank(self.uic3.txt_so_dt, profile.get('person_phone') or profile.get('contact_phone'))
+        _set_if_blank(self.uic3.txt_ten_cong_ty, profile.get('company_name'))
+        _set_if_blank(self.uic3.txt_mst, profile.get('tax_code'))
+        _set_if_blank(self.uic3.txt_dia_chi, profile.get('address'))
+        _set_if_blank(self.uic3.txt_email, profile.get('email') or profile.get('contact_email'))
+        _set_if_blank(self.uic3.txt_ten_lead, profile.get('latest_lead_title'))
+
+        if profile.get('company_found'):
+            _set_always(self.uic3.txt_ten_cong_ty, profile.get('company_name'))
+
+        history_note = profile.get('history_note')
+        if history_note:
+            self.uic3.txt_file.append(history_note)
+            self.uic3.txt_file.append('Hệ thống đã tự điền các thông tin sẵn có trên form tạo lead.')
+            self.uic3.txt_file.repaint()
+
+        if profile.get('company_found'):
+            try:
+                self.uic3.but_lich_su.setEnabled(True)
+            except Exception:
+                pass
 
     def tao_lead(self, lead_id):
         ten_lead = self.uic3.txt_ten_lead.toPlainText()

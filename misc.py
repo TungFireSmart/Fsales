@@ -33,7 +33,8 @@ def _connect():
         use_pure=True
     )
 
-def sql_all(query, params=None):
+def sql_all(query, params=None, max_retry=3, default=None):
+    retry = 0
     while True:
         try:
             db = _connect()
@@ -44,11 +45,17 @@ def sql_all(query, params=None):
             db.close()
             return rows
         except Exception as e:
-            print("sql_all error:", e)
+            retry += 1
+            print(f"sql_all error (retry {retry}/{max_retry}):", e)
+            if retry >= max_retry:
+                if default is not None:
+                    return default
+                raise
             time.sleep(0.5)
 
 
-def sql_one(query, params=None):
+def sql_one(query, params=None, max_retry=3, default=None):
+    retry = 0
     while True:
         try:
             db = _connect()
@@ -59,7 +66,12 @@ def sql_one(query, params=None):
             db.close()
             return row
         except Exception as e:
-            print("sql_one error:", e)
+            retry += 1
+            print(f"sql_one error (retry {retry}/{max_retry}):", e)
+            if retry >= max_retry:
+                if default is not None:
+                    return default
+                raise
             time.sleep(0.5)
 
 def sql_commit(query, params=None, max_retry=3):
@@ -149,6 +161,117 @@ def check_lead_ready_for_workflow(lead_id):
         return False, "Lead chưa sẵn sàng xử lý. Vui lòng cập nhật trạng thái sang 'Đã nhận việc' (hoặc trạng thái sau đó)."
 
     return True, "OK"
+
+
+def lookup_customer_profile(phone='', mst=''):
+    phone = re.sub(r'\D', '', str(phone or ''))
+    mst = re.sub(r'\D', '', str(mst or ''))
+
+    profile = {
+        'person_name': '',
+        'person_phone': '',
+        'company_name': '',
+        'tax_code': '',
+        'address': '',
+        'email': '',
+        'contact_name': '',
+        'contact_phone': '',
+        'contact_title': '',
+        'contact_email': '',
+        'latest_lead_title': '',
+        'latest_owner': '',
+        'lead_count': 0,
+        'won_count': 0,
+        'history_note': '',
+        'company_found': False,
+        'person_found': False,
+    }
+
+    row = None
+    leads = []
+    won = []
+    company = None
+
+    try:
+        if phone and len(phone) == 10:
+            row = sql_one(
+                "SELECT ten, dien_thoai, leads, ten_cong_ty, mst_cong_ty, address FROM ds_ca_nhan WHERE dien_thoai = %s",
+                (phone,),
+                default=None
+            )
+            if row:
+                profile['person_found'] = True
+                profile['person_name'] = str(row[0] or '')
+                profile['person_phone'] = str(row[1] or '')
+                profile['company_name'] = str(row[3] or '')
+                profile['tax_code'] = re.sub(r'\D', '', str(row[4] or ''))
+                profile['address'] = str(row[5] or '')
+                if not mst and profile['tax_code']:
+                    mst = profile['tax_code']
+
+            leads = sql_all(
+                "SELECT lead_id, name, sdt, company, mst, yc, address, phu_trach, ten_co_hoi "
+                "FROM sale_lead WHERE sdt = %s ORDER BY lead_id DESC",
+                (phone,),
+                default=[]
+            ) or []
+            if leads:
+                profile['lead_count'] = len(leads)
+                latest = leads[0]
+                profile['latest_owner'] = str(latest[7] or '')
+                profile['latest_lead_title'] = str(latest[8] or '')
+                if not profile['person_name']:
+                    profile['person_name'] = str(latest[1] or '')
+                if not profile['company_name']:
+                    profile['company_name'] = str(latest[3] or '')
+                if not profile['tax_code']:
+                    profile['tax_code'] = re.sub(r'\D', '', str(latest[4] or ''))
+                if not profile['address']:
+                    profile['address'] = str(latest[6] or '')
+                if not mst and profile['tax_code']:
+                    mst = profile['tax_code']
+
+                won = sql_all("SELECT lead_id FROM sale_lead WHERE sdt = %s AND dat_hang = 'T'", (phone,), default=[]) or []
+                profile['won_count'] = len(won)
+                history_note = f"Đã từng có {len(leads)} cơ hội bán hàng"
+                if won:
+                    history_note += f" và có {len(won)} đơn hàng thành công."
+                owners = sorted(set([str(ele[7]) for ele in leads if len(ele) > 7 and ele[7]]))
+                if owners:
+                    history_note += " Người đã từng liên hệ: " + ", ".join(owners) + "."
+                profile['history_note'] = history_note
+
+        if mst:
+            company = sql_one(
+                "SELECT ten_cong_ty, dia_chi, mst, nguoi_lien_he, sdt_nguoi_lh, chuc_vu_nlh, email_nlh, email_cong_ty, dien_thoai_cong_ty "
+                "FROM ds_cong_ty WHERE mst = %s",
+                (mst,),
+                default=None
+            )
+            if company:
+                profile['company_found'] = True
+                profile['company_name'] = str(company[0] or profile['company_name'])
+                profile['address'] = str(company[1] or profile['address'])
+                profile['tax_code'] = re.sub(r'\D', '', str(company[2] or profile['tax_code']))
+                profile['contact_name'] = str(company[3] or '')
+                profile['contact_phone'] = str(company[4] or '')
+                profile['contact_title'] = str(company[5] or '')
+                profile['contact_email'] = str(company[6] or '')
+                profile['email'] = str(company[6] or company[7] or profile['email'])
+                if not profile['person_name']:
+                    profile['person_name'] = str(company[3] or '')
+                if not profile['person_phone']:
+                    profile['person_phone'] = str(company[4] or company[8] or '')
+
+                if profile['history_note']:
+                    profile['history_note'] += f"\nCông ty {profile['company_name']} đã từng có lịch sử giao dịch."
+                else:
+                    profile['history_note'] = f"Công ty {profile['company_name']} đã từng có lịch sử giao dịch."
+    except Exception as e:
+        print(f'lookup_customer_profile error: {e}')
+        profile['history_note'] = (profile.get('history_note') + '\n' if profile.get('history_note') else '') + 'Không thể tra cứu thêm từ DB lúc này.'
+
+    return profile
 
 
 def tao_bao_gia(lead_id, user):

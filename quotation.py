@@ -427,17 +427,19 @@ class Quotato(QMainWindow):
                 self.uic5.label_noti.setText(f'Lịch sử thanh toán: {ls}')
 
         # Điền thông tin khách hàng
-        # [ten cong ty - ten khach hang - so dt - lead id - ten co hoi - mst]
         ttkh = misc.sql_one("SELECT company, name, sdt, ten_co_hoi, mst, address FROM sale_lead WHERE lead_id = %s", (lead_id,))
-        self.uic5.text_ten_congty.setText(ttkh[0] or '')
-        self.uic5.text_nguoi_lien_he.setText(ttkh[1] or '')
-        self.uic5.text_sdt.setText(ttkh[2] or '')
-        self.uic5.label_lead_id.setText(lead_id or '')
-        self.uic5.text_noi_dung.setText(ttkh[3] or '')
-        self.uic5.text_dia_chi.setText(ttkh[5] or '')
+        profile = misc.lookup_customer_profile(phone=(ttkh[2] if ttkh else ''), mst=(ttkh[4] if ttkh else ''))
 
-        self.uic5.text_mst.setText(ttkh[4] or '')
-        self.uic5.text_dia_chi.setText(ttkh[5] or '')
+        self.uic5.text_ten_congty.setText(profile.get('company_name') or (ttkh[0] if ttkh else '') or '')
+        self.uic5.text_nguoi_lien_he.setText(profile.get('person_name') or profile.get('contact_name') or (ttkh[1] if ttkh else '') or '')
+        self.uic5.text_sdt.setText(profile.get('person_phone') or profile.get('contact_phone') or (ttkh[2] if ttkh else '') or '')
+        self.uic5.label_lead_id.setText(lead_id or '')
+        self.uic5.text_noi_dung.setText((ttkh[3] if ttkh else '') or profile.get('latest_lead_title') or '')
+        self.uic5.text_dia_chi.setText(profile.get('address') or (ttkh[5] if ttkh else '') or '')
+        self.uic5.text_mst.setText(profile.get('tax_code') or (ttkh[4] if ttkh else '') or '')
+
+        if hasattr(self.uic5, 'text_email'):
+            self.uic5.text_email.setText(profile.get('email') or profile.get('contact_email') or '')
 
         # Hiển thị đúng ngày báo giá từ DB (không dùng ngày hiện tại)
         ngay_bg_row = misc.sql_one("SELECT ngaythang FROM ds_bao_gia WHERE so_bg = %s", (so_bg,))
@@ -832,6 +834,23 @@ class Quotato(QMainWindow):
             uic.label_noti.setStyleSheet('color: red')
             uic.label_noti.setText('SĐT chỉ gồm số và dài 10-11 ký tự.')
             return
+
+        profile = misc.lookup_customer_profile(phone=sdt, mst=mst)
+
+        if not ten_cong_ty:
+            ten_cong_ty = profile.get('company_name', '')
+        if not ten_khach:
+            ten_khach = profile.get('person_name') or profile.get('contact_name') or ''
+        if not dia_chi:
+            dia_chi = profile.get('address', '')
+        if not mst:
+            mst = profile.get('tax_code', '')
+        if hasattr(uic, 'text_email') and not email:
+            email = profile.get('email') or profile.get('contact_email') or ''
+            try:
+                uic.text_email.setText(email)
+            except Exception:
+                pass
 
         # 1) Luôn cập nhật lead
         misc.sql_commit(
