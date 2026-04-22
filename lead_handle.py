@@ -2,6 +2,7 @@ import re
 from datetime import datetime, timedelta
 import pytz
 from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox
+from contextlib import suppress
 from PyQt6.QtCore import Qt, QTimer, QSignalBlocker
 
 from PyQt6.QtCore import QUrl
@@ -49,6 +50,7 @@ class LeadHandle(QMainWindow):
         status_list = ['Mới', 'Anna đã giao việc', 'Đã nhận việc', 'Đã quá hạn báo giá', 'Cần cập nhật lại', 'Đã quá 10 ngày', 'Đã báo giá', 'Đã đặt hàng', 'Đã thanh toán', 'Đã giao hàng', 'Đã trả lại toàn bộ', 'Done - Thất bại']
         self.uic4.comboBox.addItems(status_list)
         self.uic4.comboBox.setCurrentText((status or 'Mới'))
+        self._lead_update_original_status = (status or 'Mới')
 
         self.uic4.label_lead_id.setText(str(lead_id_db or lead_id))
         self.uic4.txt_ten_cong_ty.setText(str(company or ''))
@@ -103,10 +105,49 @@ class LeadHandle(QMainWindow):
 
         self.uic4.txt_mst.textChanged.connect(lambda: LeadHandle.autofill_update_lead_profile(self))
         self.uic4.txt_so_dt.textChanged.connect(lambda: LeadHandle.autofill_update_lead_profile(self))
+        self.uic4.comboBox.currentTextChanged.connect(lambda _: LeadHandle.persist_update_lead_status(self, lead_id))
 
         self.uic4.but_baogia.clicked.connect(lambda: LeadHandle.show_quotato_from_lead(self, lead_id))
 
         self.uic4.but_sua_tt.clicked.connect(lambda: LeadHandle.sua_tt_kh(self))
+
+    def persist_update_lead_status(self, lead_id):
+        try:
+            new_status = str(self.uic4.comboBox.currentText() or '').strip() or 'Mới'
+        except Exception:
+            return False
+
+        old_status = str(getattr(self, '_lead_update_original_status', '') or '').strip() or 'Mới'
+        if new_status == old_status:
+            return True
+
+        try:
+            old_time_nhan_viec = misc.sql_one("SELECT time_nhan_viec FROM sale_lead WHERE lead_id = %s", (lead_id,))
+            old_time_nhan_viec = old_time_nhan_viec[0] if old_time_nhan_viec else None
+
+            if new_status == 'Đã nhận việc' and old_status != 'Đã nhận việc':
+                misc.sql_commit("UPDATE sale_lead SET status = %s, time_nhan_viec = NOW() WHERE lead_id = %s", (new_status, lead_id))
+                misc.audit_log(self.user or 'unknown', 'UPDATE_STATUS', 'status', old_status, new_status, lead_id)
+                misc.audit_log(self.user or 'unknown', 'UPDATE_LEAD', 'time_nhan_viec', old_time_nhan_viec, 'NOW()', lead_id)
+            else:
+                misc.sql_commit("UPDATE sale_lead SET status = %s WHERE lead_id = %s", (new_status, lead_id))
+                misc.audit_log(self.user or 'unknown', 'UPDATE_STATUS', 'status', old_status, new_status, lead_id)
+
+            self._lead_update_original_status = new_status
+            with suppress(Exception):
+                self.uic4.label_noti.setStyleSheet("color: green")
+                if new_status == 'Đã nhận việc' and old_status != 'Đã nhận việc':
+                    self.uic4.label_noti.setText("Đã lưu trạng thái: Đã nhận việc, đã cập nhật thời gian nhận việc")
+                else:
+                    self.uic4.label_noti.setText(f"Đã lưu trạng thái: {new_status}")
+                self.uic4.label_noti.repaint()
+            return True
+        except Exception as e:
+            with suppress(Exception):
+                self.uic4.label_noti.setStyleSheet("color: red")
+                self.uic4.label_noti.setText(f"Không thể lưu trạng thái lead: {e}")
+                self.uic4.label_noti.repaint()
+            return False
 
     def autofill_update_lead_profile(self):
         sdt = re.sub(r'\D', '', self.uic4.txt_so_dt.toPlainText())
@@ -573,6 +614,9 @@ class LeadHandle(QMainWindow):
                                 "WHERE mst = %s", (new_lead_id, tencongty, ttkh[0], ttkh[1], diachi, mst,))
 
     def show_quotato_from_lead(self, lead_id):
+        if hasattr(self, 'uic4') and not LeadHandle.persist_update_lead_status(self, lead_id):
+            return
+
         self.win_quotato = quotation.Quotato()
         self.win_quotato.user = self.user
         self.win_quotato.user_phone = self.user_phone

@@ -3,6 +3,7 @@ from datetime import datetime
 
 from PyQt6.QtWidgets import QPushButton, QCompleter, QLineEdit, QStyle, QApplication, QMainWindow, QTableWidgetItem, \
     QStyledItemDelegate, QMessageBox
+from contextlib import suppress
 from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtCore import Qt, QStringListModel, QUrl
 from PyQt6.QtCore import QTimer
@@ -262,14 +263,16 @@ class Quotato(QMainWindow):
         editor.selectAll()
 
     def before_make_quotation(self, lead_id):
+        try:
+            kq = misc.sql_all("SELECT * from ds_bao_gia WHERE lead_id = %s", (lead_id,))
 
-        kq = misc.sql_all("SELECT * from ds_bao_gia WHERE lead_id = %s", (lead_id,))
-
-        # [ten cong ty - ten khach hang - so dt - lead id - ten co hoi - mst]
-        if kq:
-            Quotato.show_list_quotation(self, lead_id, kq)
-        else:
-            Quotato.make_quotation(self, lead_id)
+            # [ten cong ty - ten khach hang - so dt - lead id - ten co hoi - mst]
+            if kq:
+                Quotato.show_list_quotation(self, lead_id, kq)
+            else:
+                Quotato.make_quotation(self, lead_id)
+        except Exception as e:
+            QMessageBox.warning(self, 'Không thể mở báo giá', str(e))
 
     def show_list_quotation(self, lead_id, kq):
         self.win_listBaoGia = QMainWindow()
@@ -651,9 +654,18 @@ class Quotato(QMainWindow):
         self.sub_win1.show()
         self.uic5.but_save_thong_tin.hide()
 
-        data = misc.tao_bao_gia(lead_id, self.user)
-        so_bg = str(data[1])
-        Quotato.show_bg(self, lead_id, so_bg, data=None)
+        try:
+            data = misc.tao_bao_gia(lead_id, self.user)
+            so_bg = str(data[1])
+            Quotato.show_bg(self, lead_id, so_bg, data=None)
+        except Exception as e:
+            with suppress(Exception):
+                self.uic5.label_noti.setStyleSheet('color: red')
+                self.uic5.label_noti.setText(str(e))
+                self.uic5.label_noti.repaint()
+            QMessageBox.warning(self.sub_win1, 'Không thể tạo báo giá', str(e))
+            with suppress(Exception):
+                self.sub_win1.close()
 
     def show_bao_gia_cu(self, data, index, uick):
         if index == 0:
