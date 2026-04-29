@@ -1676,7 +1676,10 @@ class Crm(QMainWindow):
 
         self.uic9.but_update.clicked.connect(lambda: Crm.update_tt_cong_ty(self))
         self.uic9.but_tao_lead.clicked.connect(lambda: Crm._open_new_lead_screen(self))
-        self.uic9.but_tao_hop_dong.clicked.connect(lambda: Crm._open_quote_review_for_contract(self))
+        if so_bg:
+            self.uic9.but_tao_hop_dong.clicked.connect(lambda: Crm.tao_hop_dong_tu_mau(self))
+        else:
+            self.uic9.but_tao_hop_dong.clicked.connect(lambda: Crm._open_quote_review_for_contract(self))
 
         # Lịch sử giao dịch: load khi mở tab "Lịch sử giao dịch"
         try:
@@ -1912,8 +1915,6 @@ class Crm(QMainWindow):
             ten_cty = self.uic9.txt_ten_cong_ty.toPlainText().strip()
             mst = self.uic9.txt_mst.toPlainText().strip()
             dia_chi = self.uic9.txt_dia_chi.toPlainText().strip()
-            nguoi_dd = self.uic9.txt_nguoi_dai_dien.toPlainText().strip()
-            chuc_vu = self.uic9.txt_chuc_vu.toPlainText().strip()
             sdt = self.uic9.txt_sdt_nguoi_dai_dien.toPlainText().strip() or self.uic9.txt_sdt_cong_ty.toPlainText().strip()
 
             if not so_bg:
@@ -1963,6 +1964,46 @@ class Crm(QMainWindow):
             lead_address = lead[3] if lead else ''
             lead_mst = lead[4] if lead else ''
             lead_email = lead[5] if lead else ''
+
+            company_row = misc.sql_one(
+                'SELECT ten_cong_ty, mst, dia_chi, nguoi_dai_dien, chuc_vu_ndd, sdt_nguoi_dd, email_cong_ty, stk, ngan_hang FROM ds_cong_ty WHERE mst = %s LIMIT 1',
+                (mst,)
+            ) if mst else None
+
+            if not company_row and ten_cty:
+                company_row = misc.sql_one(
+                    'SELECT ten_cong_ty, mst, dia_chi, nguoi_dai_dien, chuc_vu_ndd, sdt_nguoi_dd, email_cong_ty, stk, ngan_hang FROM ds_cong_ty WHERE ten_cong_ty = %s LIMIT 1',
+                    (ten_cty,)
+                )
+
+            cty_ten = company_row[0] if company_row else (lead_company or ten_cty)
+            cty_mst = company_row[1] if company_row else (lead_mst or mst)
+            cty_dia_chi = company_row[2] if company_row else (lead_address or dia_chi)
+            nguoi_dd = company_row[3].strip() if company_row and company_row[3] else ''
+            chuc_vu = company_row[4].strip() if company_row and company_row[4] else ''
+            cty_sdt_dd = company_row[5].strip() if company_row and company_row[5] else ''
+            cty_email = company_row[6].strip() if company_row and company_row[6] else (lead_email or '')
+            cty_stk = company_row[7].strip() if company_row and company_row[7] else ''
+            cty_bank = company_row[8].strip() if company_row and company_row[8] else ''
+
+            if not company_row:
+                self.uic9.label_noti.setStyleSheet('color: red')
+                self.uic9.label_noti.setText('❌ Không tìm thấy dữ liệu công ty trong ds_cong_ty theo MST/tên công ty. Vui lòng cập nhật CRM trước khi tạo hợp đồng.')
+                return
+
+            if nguoi_dd and (not chuc_vu) and ' - ' in nguoi_dd:
+                ten_tach, chuc_vu_tach = nguoi_dd.split(' - ', 1)
+                if ten_tach.strip() and chuc_vu_tach.strip():
+                    nguoi_dd = ten_tach.strip()
+                    chuc_vu = chuc_vu_tach.strip()
+
+            if not nguoi_dd or not chuc_vu:
+                self.uic9.label_noti.setStyleSheet('color: red')
+                self.uic9.label_noti.setText('❌ Thiếu người đại diện hoặc chức vụ trong ds_cong_ty. Vui lòng cập nhật dữ liệu công ty trước khi tạo hợp đồng.')
+                return
+
+            if cty_sdt_dd:
+                sdt = cty_sdt_dd
 
             bg = misc.sql_one('SELECT sotien, noi_dung, sum8, sum10, sum0 FROM ds_bao_gia WHERE so_bg = %s', (so_bg,))
             tong_so = int(bg[0] or 0) if bg else 0
@@ -2052,13 +2093,13 @@ class Crm(QMainWindow):
                 # placeholders trong template hiện tại
                 '{so_hd}': so_hd,
                 '{contract-date}': ngay_ky,
-                '{company_name}': lead_company or ten_cty,
-                '{address}': lead_address or dia_chi,
-                '{email_cty}': lead_email,
-                '{stk}': '',
-                '{bank}': '',
-                '{mst}': lead_mst or mst,
-                '{dai_dien}': nguoi_dd or ten_lh,
+                '{company_name}': cty_ten,
+                '{address}': cty_dia_chi,
+                '{email_cty}': cty_email,
+                '{stk}': cty_stk,
+                '{bank}': cty_bank,
+                '{mst}': cty_mst,
+                '{dai_dien}': nguoi_dd,
                 '{chuc_vu}': chuc_vu,
                 '{tien-bang-so}': '{:,}'.format(tong_cong),
                 '{tien-bang-chu}': to_vn_words(tong_cong),
@@ -2069,10 +2110,10 @@ class Crm(QMainWindow):
                 # giữ thêm các key cũ/phòng hờ
                 '{SO_BG}': str(so_bg),
                 '{NGAY}': ngay_ky,
-                '{TEN_CONG_TY}': lead_company or ten_cty,
-                '{MST}': lead_mst or mst,
-                '{DIA_CHI}': lead_address or dia_chi,
-                '{NGUOI_DAI_DIEN}': nguoi_dd or ten_lh,
+                '{TEN_CONG_TY}': cty_ten,
+                '{MST}': cty_mst,
+                '{DIA_CHI}': cty_dia_chi,
+                '{NGUOI_DAI_DIEN}': nguoi_dd,
                 '{CHUC_VU}': chuc_vu,
                 '{SDT}': sdt_lh or sdt,
                 '{TEN_LIEN_HE}': ten_lh,
