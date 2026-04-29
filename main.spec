@@ -34,6 +34,9 @@ a = Analysis(
         ("bao_gia_mau_infutech.xlsx", "."),
         ("bao_gia_mau_bach_khoa.xlsx", "."),
         ("bao_gia_thue.xlsx", "."),
+
+        # === CONTRACT TEMPLATE ===
+        ("mau_hop_dong.docx", "."),
     ],
     hiddenimports=hidden_imports,
     hookspath=[],

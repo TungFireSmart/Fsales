@@ -354,8 +354,8 @@ class Quotato(QMainWindow):
             self.win_listBaoGia.close()
 
             # Tìm thông tin báo giá theo số báo giá
-
             kq = misc.sql_one("SELECT * from ds_bao_gia WHERE so_bg = %s", (so_bg,))
+
             # Nếu báo giá không có nội dung thì xóa báo giá có số đó đi
             if kq:
                 if kq[3] is None or kq[3] == "":
@@ -363,11 +363,11 @@ class Quotato(QMainWindow):
 
             kq = misc.sql_one("SELECT * from ds_bao_gia WHERE so_bg = %s", (int(so_bg),))
 
-            # Nếu không tìm thấy báo giá có số đó thì tạo báo giá mới theo thông tin khách hàng
+            # Nếu không tìm thấy báo giá có số đó thì tạo báo giá mới theo lead hiện tại
             if kq is None:
-
                 data1 = misc.tao_bao_gia(lead_id, self.user)
                 so_bg = str(data1[1])
+                quote_lead_id = str(lead_id)
                 self.uic5.label_noti.setStyleSheet("color: red;")
                 self.uic5.label_noti.setText(data1[0])
                 self.uic5.label_so_bg.setText(so_bg)
@@ -375,6 +375,8 @@ class Quotato(QMainWindow):
 
             # Nếu có báo giá số đó thì lấy nội dung ra rồi hiển thị
             else:
+                quote_lead_id = str(kq[1]) if kq[1] is not None else str(lead_id)
+
                 if kq[16] == 'T':
                     self.uic5.checkBox.setChecked(True)
                 else:
@@ -393,7 +395,7 @@ class Quotato(QMainWindow):
                     self.uic5.label_noti.setText('Báo giá này đã xuất hàng, không sửa được nữa.')
                     self.uic5.label_noti.repaint()
 
-            Quotato.show_bg(self, lead_id, so_bg, data)
+            Quotato.show_bg(self, quote_lead_id, so_bg, data)
         except Exception as e:
             print(e)
 
@@ -835,6 +837,7 @@ class Quotato(QMainWindow):
         sdt = (uic.text_sdt.toPlainText() or '').strip()
         dia_chi = (uic.text_dia_chi.toPlainText() or '').strip()
         mst = (uic.text_mst.toPlainText() or '').strip().replace(' ', '')
+        email = ((uic.text_email.toPlainText() or '').strip() if hasattr(uic, 'text_email') else '')
         noidung = (uic.text_noi_dung.toPlainText() or '').strip()
 
         if len(ten_khach) < 2:

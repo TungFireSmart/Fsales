@@ -1737,6 +1737,15 @@ class Crm(QMainWindow):
 
         # Nếu thiếu trường bắt buộc nhưng có người liên hệ → vẫn lưu người liên hệ vào ds_ca_nhan
         if missing_required:
+            required_snapshot = {
+                "Tên công ty": fields["ten_cty"],
+                "Mã số thuế": fields["mst"],
+                "Địa chỉ": fields["dia_chi"],
+                "Người đại diện": fields["nguoi_dd"],
+                "Điện thoại công ty": fields["sdt_cty"],
+            }
+            print("[update_tt_cong_ty] required field snapshot:", required_snapshot)
+
             if fields["nguoi_lh"] and re.match(r"^0\d{9}$", fields["sdt_nlh"]):
                 misc.sql_commit(
                     """
@@ -1751,7 +1760,9 @@ class Crm(QMainWindow):
                     (fields["nguoi_lh"], fields["sdt_nlh"], fields["email_nlh"], fields["ten_cty"], fields["mst"])
                 )
                 self.uic9.label_noti.setStyleSheet("color: orange")
-                self.uic9.label_noti.setText("⚠️ Thiếu thông tin công ty. Chỉ lưu người liên hệ.")
+                self.uic9.label_noti.setText(
+                    "⚠️ Thiếu thông tin công ty: " + ", ".join(missing_required) + ". Chỉ lưu người liên hệ."
+                )
                 return
             else:
                 self.uic9.label_noti.setStyleSheet("color: red")
