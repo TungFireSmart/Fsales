@@ -62,7 +62,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.uic = Ui_MainWindow()
         self.uic.setupUi(self)
-        self.app_version = '3.0.16'
+        self.app_version = '3.0.18'
         self.setWindowTitle(QApplication.translate("MainWindow", f"Fsale v{self.app_version}"))
         apply_ui_v2(self)
         self._set_version_label()
@@ -350,6 +350,7 @@ class MainWindow(QMainWindow):
             ]
             for q in normalize_sql:
                 misc.sql_commit(q)
+            misc.refresh_busy_for_all_users_with_open_leads()
 
             # 2) Auto-release lead Anna đã giao việc quá 1 giờ (nếu chưa có BG/ĐH)
             to_release = misc.sql_all(
@@ -960,9 +961,11 @@ class MainWindow(QMainWindow):
             old_owner = old[0] if old else ''
             old_status = old[1] if old else ''
 
-            misc.sql_commit("UPDATE user SET check_busy = 1 WHERE full_name = %s", (self.user,))
             misc.sql_commit("UPDATE sale_lead SET phu_trach = %s, status = 'Đã nhận việc', time_nhan_viec = NOW() "
                           "WHERE lead_id = %s", (self.user, lead_id,))
+
+            misc.refresh_user_busy(old_owner)
+            misc.refresh_user_busy(self.user)
 
             misc.audit_log(self.user, 'UPDATE_OWNER', 'phu_trach', old_owner, self.user, lead_id)
             misc.audit_log(self.user, 'UPDATE_STATUS', 'status', old_status, 'Đã nhận việc', lead_id)

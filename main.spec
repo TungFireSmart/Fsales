@@ -22,6 +22,9 @@ a = Analysis(
     pathex=["."],
     binaries=[],
     datas=[
+        # === UI FORMS / PY MODULES ===
+        ("UI\\*.py", "UI"),
+        ("UI\\*.ui", "UI"),
         # === LOGO ASSETS ===
         ("assets/logo_pccc.png", "assets"),
         ("assets/logo_infutech.png", "assets"),

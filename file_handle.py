@@ -210,6 +210,11 @@ def update_file_list_in_ui(lead_id, uic):
 
 
 def handle_upload(lead_id, uic):
+    ok, msg = misc.check_lead_ready_for_workflow(lead_id, allow_file_upload=True)
+    if not ok:
+        uic.txt_file.append(f'<span style="color:red;">⛔ {msg}</span>')
+        return
+
     uic.txt_file.append('<span style="color:green;">⏳ Đang tải file lên Google Drive...</span>')
     uploaded = upload_file()  # format: tenfile|file_id|mime
     if not uploaded:

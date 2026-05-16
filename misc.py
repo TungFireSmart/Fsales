@@ -129,6 +129,7 @@ def audit_log(actor, action, field, old_value, new_value, lead_id=None):
 
 LEAD_TITLE_PLACEHOLDER_ANNA = 'Anna chờ sales đặt tên lead này'
 LEAD_STATUS_ANNA_ASSIGNED = 'Anna đã giao việc'
+LEAD_STATUS_ANNA_ASSIGNED_LEGACY = 'Đã giao việc từ Anna'
 LEAD_READY_STATUS = {
     'Đã nhận việc',
     'Đã quá hạn báo giá',
@@ -142,8 +143,100 @@ LEAD_READY_STATUS = {
     'Done - Thất bại',
 }
 
+USER_BUSY_BLOCKING_STATUSES = {
+    'Đã nhận việc',
+    'Đã quá hạn báo giá',
+    'Cần cập nhật lại',
+    'Đã quá 10 ngày',
+    LEAD_STATUS_ANNA_ASSIGNED,
+    LEAD_STATUS_ANNA_ASSIGNED_LEGACY,
+}
 
-def check_lead_ready_for_workflow(lead_id):
+AUTO_ASSIGN_PRIMARY_USERS = ['Nguyễn Hải Hà', 'Lê Văn Việt']
+AUTO_ASSIGN_FALLBACK_USERS = ['Hoàng Thị Thanh Nga', 'Nguyễn Ngọc Linh', 'Phí Ngọc Tùng']
+
+
+def is_user_busy(user):
+    row = sql_one("SELECT check_busy FROM user WHERE full_name = %s", (user,), default=(0,))
+    try:
+        return int((row or [0])[0] or 0) == 1
+    except Exception:
+        return False
+
+
+def refresh_user_busy(user):
+    user = str(user or '').strip()
+    if not user or user == 'waiting':
+        return 0
+
+    row = sql_one(
+        "SELECT COUNT(*) FROM sale_lead WHERE phu_trach = %s AND check_delete != '1' AND TRIM(status) IN (%s, %s, %s, %s, %s, %s)",
+        (
+            user,
+            'Đã nhận việc',
+            'Đã quá hạn báo giá',
+            'Cần cập nhật lại',
+            'Đã quá 10 ngày',
+            LEAD_STATUS_ANNA_ASSIGNED,
+            LEAD_STATUS_ANNA_ASSIGNED_LEGACY,
+        ),
+        default=(0,),
+    )
+    busy = 1 if int((row or [0])[0] or 0) > 0 else 0
+    sql_commit("UPDATE user SET check_busy = %s WHERE full_name = %s", (busy, user))
+    return busy
+
+
+def _next_rotation_user(candidates):
+    candidates = [str(x or '').strip() for x in (candidates or []) if str(x or '').strip()]
+    if not candidates:
+        return None
+
+    rows = sql_all(
+        "SELECT phu_trach, MAX(time_create) FROM sale_lead WHERE phu_trach IN ({}) GROUP BY phu_trach".format(','.join(['%s'] * len(candidates))),
+        tuple(candidates),
+        default=[],
+    ) or []
+    last_map = {str(r[0] or '').strip(): r[1] for r in rows}
+    missing = [u for u in candidates if u not in last_map]
+    if missing:
+        return missing[0]
+    return min(candidates, key=lambda u: last_map.get(u))
+
+
+def pick_auto_assign_user(preferred_user=None):
+    preferred_user = str(preferred_user or '').strip()
+    if preferred_user and preferred_user != 'waiting' and not is_user_busy(preferred_user):
+        return preferred_user
+
+    primary_free = [u for u in AUTO_ASSIGN_PRIMARY_USERS if not is_user_busy(u)]
+    if primary_free:
+        return _next_rotation_user(primary_free) or primary_free[0]
+
+    for user in AUTO_ASSIGN_FALLBACK_USERS:
+        if not is_user_busy(user):
+            return user
+
+    return AUTO_ASSIGN_FALLBACK_USERS[-1]
+
+
+def refresh_busy_for_lead(lead_id):
+    row = sql_one("SELECT phu_trach FROM sale_lead WHERE lead_id = %s", (lead_id,), default=None)
+    if row and row[0]:
+        refresh_user_busy(row[0])
+
+
+def refresh_busy_for_all_users_with_open_leads():
+    rows = sql_all(
+        "SELECT DISTINCT phu_trach FROM sale_lead WHERE phu_trach IS NOT NULL AND TRIM(phu_trach) != '' AND phu_trach != 'waiting' AND check_delete != '1'",
+        None,
+        default=[],
+    ) or []
+    for row in rows:
+        refresh_user_busy(row[0])
+
+
+def check_lead_ready_for_workflow(lead_id, *, allow_file_upload=False):
     row = sql_one("SELECT ten_co_hoi, status FROM sale_lead WHERE lead_id = %s", (lead_id,))
     if not row:
         return False, f"Không tìm thấy lead #{lead_id}"
@@ -153,6 +246,9 @@ def check_lead_ready_for_workflow(lead_id):
 
     if ten_co_hoi == LEAD_TITLE_PLACEHOLDER_ANNA:
         return False, "Lead chưa được đặt tên cơ hội. Vui lòng đổi tên trước khi thao tác tiếp."
+
+    if allow_file_upload:
+        return True, "OK"
 
     if status == LEAD_STATUS_ANNA_ASSIGNED:
         return False, "Lead đang ở trạng thái 'Anna đã giao việc'. Vui lòng chuyển sang 'Đã nhận việc' (hoặc trạng thái sau đó) để tiếp tục."

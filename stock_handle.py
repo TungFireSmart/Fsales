@@ -1647,6 +1647,7 @@ class StockHandle(QMainWindow):
                     lid, old_status = lead_row[0], lead_row[1]
                     if str(old_status or '') != 'Đã giao hàng':
                         misc.sql_commit("UPDATE sale_lead SET status='Đã giao hàng' WHERE lead_id=%s", (lid,))
+                        misc.refresh_busy_for_lead(lid)
                         misc.audit_log(self.user, 'EXPORT_STOCK', 'status', old_status, 'Đã giao hàng', lid)
                 misc.audit_log(self.user, 'EXPORT_STOCK', 'so_bg', '-', so_bg, lead_row[0] if lead_row else None)
 

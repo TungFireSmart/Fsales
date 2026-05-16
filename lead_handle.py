@@ -23,6 +23,44 @@ class LeadHandle(QMainWindow):
         self.win_newlead = None
         self.uic3 = None
 
+    @staticmethod
+    def _looks_like_company(text):
+        text = str(text or '').strip().lower()
+        if not text:
+            return False
+        company_keywords = (
+            'công ty', 'cty', 'tnhh', 'cổ phần', 'cp ', ' cp', 'jsc', 'ltd',
+            'co.,', 'company', 'doanh nghiệp', 'hộ kinh doanh', 'trung tâm',
+            'xưởng', 'nhà máy', 'ngân hàng', 'bank'
+        )
+        return any(k in text for k in company_keywords)
+
+    @staticmethod
+    def _looks_like_person_name(text):
+        text = str(text or '').strip().lower()
+        if not text:
+            return False
+        person_prefixes = (
+            'anh ', 'chị ', 'chi ', 'ông ', 'bà ', 'cô ', 'chú ',
+            'mr ', 'ms ', 'mrs ', 'miss '
+        )
+        return text.startswith(person_prefixes)
+
+    @classmethod
+    def _normalize_customer_company_fields(cls, customer_name, company_name):
+        """Return (customer_name, company_name, swapped).
+
+        DB convention: sale_lead.name = người liên hệ/khách hàng,
+        sale_lead.company = tên công ty. Older UI placeholder text was reversed,
+        so protect saves and display from the common swapped pattern.
+        """
+        customer_name = str(customer_name or '').strip()
+        company_name = str(company_name or '').strip()
+        swapped = cls._looks_like_company(customer_name) and cls._looks_like_person_name(company_name)
+        if swapped:
+            return company_name, customer_name, True
+        return customer_name, company_name, False
+
     def update_job(self, lead_id):
         self.win_update_lead = QMainWindow()
         self.uic4 = Ui_LeadUpdate()
@@ -43,6 +81,7 @@ class LeadHandle(QMainWindow):
             return
 
         lead_id_db, name, sdt, company, mst, yc, address, status, old_files = result
+        name, company, swapped_customer_fields = LeadHandle._normalize_customer_company_fields(name, company)
 
         self.uic4.label_username.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.uic4.label_username.setText(str(self.user or ''))
@@ -59,6 +98,9 @@ class LeadHandle(QMainWindow):
         self.uic4.txt_yeu_cau.setText(str(yc or ''))
         self.uic4.txt_dia_chi.setText(str(address or ''))
         self.uic4.txt_mst.setText(str(mst or ''))
+        if swapped_customer_fields:
+            self.uic4.label_noti.setStyleSheet("color: #b45309")
+            self.uic4.label_noti.setText("Đã tự đảo lại Tên người liên hệ/Tên công ty trên màn hình. Bấm UPDATE thông tin để lưu chuẩn vào FSales.")
 
         # Hiển thị file đã upload (phần trên)
         self.uic4.txt_file.clear()
@@ -124,6 +166,8 @@ class LeadHandle(QMainWindow):
         try:
             old_time_nhan_viec = misc.sql_one("SELECT time_nhan_viec FROM sale_lead WHERE lead_id = %s", (lead_id,))
             old_time_nhan_viec = old_time_nhan_viec[0] if old_time_nhan_viec else None
+            owner_row = misc.sql_one("SELECT phu_trach FROM sale_lead WHERE lead_id = %s", (lead_id,))
+            owner = owner_row[0] if owner_row else ''
 
             if new_status == 'Đã nhận việc' and old_status != 'Đã nhận việc':
                 misc.sql_commit("UPDATE sale_lead SET status = %s, time_nhan_viec = NOW() WHERE lead_id = %s", (new_status, lead_id))
@@ -133,6 +177,7 @@ class LeadHandle(QMainWindow):
                 misc.sql_commit("UPDATE sale_lead SET status = %s WHERE lead_id = %s", (new_status, lead_id))
                 misc.audit_log(self.user or 'unknown', 'UPDATE_STATUS', 'status', old_status, new_status, lead_id)
 
+            misc.refresh_user_busy(owner)
             self._lead_update_original_status = new_status
             with suppress(Exception):
                 self.uic4.label_noti.setStyleSheet("color: green")
@@ -174,6 +219,7 @@ class LeadHandle(QMainWindow):
     def sua_tt_kh(self):
         tenkhachhang = self.uic4.txt_ten_khach_hang.toPlainText().strip()
         tencongty = self.uic4.txt_ten_cong_ty.toPlainText().strip()
+        tenkhachhang, tencongty, swapped_customer_fields = LeadHandle._normalize_customer_company_fields(tenkhachhang, tencongty)
         sdt = self.uic4.txt_so_dt.toPlainText().strip().replace(".", "")
         mst = self.uic4.txt_mst.toPlainText().strip()
         address = self.uic4.txt_dia_chi.toPlainText().strip()
@@ -188,6 +234,9 @@ class LeadHandle(QMainWindow):
         """
         misc.sql_commit(update_query, (tencongty, tenkhachhang, sdt, mst, address, yeucau, leadid))
 
+        if swapped_customer_fields:
+            self.uic4.txt_ten_khach_hang.setText(tenkhachhang)
+            self.uic4.txt_ten_cong_ty.setText(tencongty)
         self.uic4.label_noti.setText('Update thành công thông tin khách hàng!')
         self.uic4.label_noti.repaint()
 
@@ -206,7 +255,7 @@ class LeadHandle(QMainWindow):
             # misc.sql_commit("UPDATE sale_lead SET status = ' ...' WHERE lead_id = %s", (lead_id,))
             # misc.sql_commit("UPDATE sale_lead SET time_nhan_viec = NOW() WHERE lead_id = '{}'", (lead_id,))
 
-            misc.sql_commit("UPDATE user SET check_busy = 0 WHERE full_name = %s", (self.user,))
+            misc.refresh_user_busy(self.user)
 
             txt = self.user + 'từ chối cơ hội, cơ hội số ' + str(lead_id) + ' được chuyển thành cơ hộ mới.'
             misc.send_to_telegram(txt)
@@ -251,15 +300,7 @@ class LeadHandle(QMainWindow):
         # Khi xóa lead bắn thông tin lên telegram và ghi vào table sale_lead trên db
 
     def check_busy(self):
-
-        kq = misc.sql_all("SELECT lead_id FROM sale_lead WHERE status IN ('Đã nhận việc','Đã quá hạn báo giá','Cần cập nhật lại','Đã quá 10 ngày') AND phu_trach = %s AND check_delete != '1'",
-            (self.user,))
-
-        if not kq:
-            misc.sql_commit("UPDATE user SET check_busy = 0 WHERE full_name = %s", (self.user,))
-
-        else:
-            misc.sql_commit("UPDATE user SET check_busy = 1 WHERE full_name = %s", (self.user,))
+        return misc.refresh_user_busy(self.user)
 
     def create_new_lead(self):
         self.win_newlead = QMainWindow()
@@ -353,6 +394,7 @@ class LeadHandle(QMainWindow):
         ten_lead = self.uic3.txt_ten_lead.toPlainText()
         ten_khach = self.uic3.txt_ten_khach_hang.toPlainText()
         cong_ty = self.uic3.txt_ten_cong_ty.toPlainText() or ' '
+        ten_khach, cong_ty, swapped_customer_fields = LeadHandle._normalize_customer_company_fields(ten_khach, cong_ty)
         diachi = self.uic3.txt_dia_chi.toPlainText()
         sdt = re.sub(r'\D', '', self.uic3.txt_so_dt.toPlainText())
         mst = self.uic3.txt_mst.toPlainText()
@@ -370,30 +412,40 @@ class LeadHandle(QMainWindow):
         elif len(ten_lead.split()) < 2:
             self.uic3.label_noti.setText('📌 Cần ghi rõ tên cơ hội (ít nhất 2 từ).')
         else:
+            assigned_user = phu_trach
+            if assigned_user != 'waiting':
+                assigned_user = misc.pick_auto_assign_user(assigned_user)
+
             sql = (
                 "INSERT INTO sale_lead (lead_id, name, sdt, company, mst, yc, status, phu_trach, nguoi_tao_lead, ten_co_hoi, address) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
 
-            status = 'Mới' if phu_trach == 'waiting' else 'Đã nhận việc'
-            val = (lead_id, ten_khach, sdt, cong_ty, mst, yeu_cau, status, phu_trach, self.user, ten_lead, diachi)
+            status = 'Mới' if assigned_user == 'waiting' else misc.LEAD_STATUS_ANNA_ASSIGNED
+            val = (lead_id, ten_khach, sdt, cong_ty, mst, yeu_cau, status, assigned_user, self.user, ten_lead, diachi)
             misc.sql_commit(sql, val)
+            if swapped_customer_fields:
+                self.uic3.txt_ten_khach_hang.setText(ten_khach)
+                self.uic3.txt_ten_cong_ty.setText(cong_ty)
             misc.audit_log(self.user, 'CREATE_LEAD', 'lead_id', '-', lead_id, lead_id)
             misc.audit_log(self.user, 'UPDATE_STATUS', 'status', '-', status, lead_id)
-            misc.audit_log(self.user, 'UPDATE_OWNER', 'phu_trach', '-', phu_trach, lead_id)
+            misc.audit_log(self.user, 'UPDATE_OWNER', 'phu_trach', '-', assigned_user, lead_id)
             misc.audit_log(self.user, 'UPDATE_TITLE', 'ten_co_hoi', '-', ten_lead, lead_id)
 
             # Gửi tin nhắn Telegram
-            if phu_trach == 'waiting':
+            if assigned_user == 'waiting':
                 misc.send_to_telegram(f"📥 {self.user} đã tạo mới một cơ hội bán hàng số {lead_id}")
-            elif phu_trach == self.user:
+            elif assigned_user == self.user:
                 misc.send_to_telegram(f"🧑‍💼 {self.user} đã tạo mới một cơ hội bán hàng số {lead_id} và tự xử lý")
             else:
                 misc.send_to_telegram(
-                    f"📤 {self.user} đã tạo mới một cơ hội bán hàng số {lead_id} và giao cho {phu_trach} xử lý")
+                    f"📤 {self.user} đã tạo mới một cơ hội bán hàng số {lead_id} và giao cho {assigned_user} xử lý")
+
+            if assigned_user != 'waiting':
+                misc.refresh_user_busy(assigned_user)
 
             # Lưu lịch sử và cập nhật giao diện
             lead_id = str(int(misc.sql_one("SELECT MAX(lead_id) FROM sale_lead")[0]) + 1)
-            ttkh = [ten_khach, sdt, cong_ty, mst, phu_trach, lead_id, diachi]
+            ttkh = [ten_khach, sdt, cong_ty, mst, assigned_user, lead_id, diachi]
 
             LeadHandle.luu_thong_tin_kh(self, ttkh)
 
@@ -406,7 +458,7 @@ class LeadHandle(QMainWindow):
             self.uic3.but_sua_lead.clicked.connect(lambda: LeadHandle.sua_lead(self, lead_id))
 
     def upload_file(self, lead_id, uic):
-        ok, msg = misc.check_lead_ready_for_workflow(lead_id)
+        ok, msg = misc.check_lead_ready_for_workflow(lead_id, allow_file_upload=True)
         if not ok:
             try:
                 self.uic3.label_noti.setStyleSheet("color: red")
@@ -497,6 +549,7 @@ class LeadHandle(QMainWindow):
             ten_lead = self.uic3.txt_ten_lead.toPlainText()
             ten_khach = self.uic3.txt_ten_khach_hang.toPlainText()
             cong_ty = self.uic3.txt_ten_cong_ty.toPlainText()
+            ten_khach, cong_ty, swapped_customer_fields = LeadHandle._normalize_customer_company_fields(ten_khach, cong_ty)
             diachi = self.uic3.txt_dia_chi.toPlainText()
 
             if cong_ty == '':
@@ -529,7 +582,13 @@ class LeadHandle(QMainWindow):
                                     misc.send_to_telegram(self.user + ' đã sửa thông tin lead ' + str(lead_id) + '.')
 
                             old = misc.sql_one("SELECT name, sdt, company, mst, yc, status, phu_trach, ten_co_hoi, address FROM sale_lead WHERE lead_id = %s", (lead_id,))
+                            old_owner = old[6] if old else ''
                             misc.sql_commit(sql, val)
+                            if swapped_customer_fields:
+                                self.uic3.txt_ten_khach_hang.setText(ten_khach)
+                                self.uic3.txt_ten_cong_ty.setText(cong_ty)
+                            misc.refresh_user_busy(old_owner)
+                            misc.refresh_user_busy(phu_trach)
 
                             if old:
                                 fields = [

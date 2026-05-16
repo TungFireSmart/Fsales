@@ -778,6 +778,7 @@ class OrderHandle(QMainWindow):
         old_status_row = misc.sql_one("SELECT status FROM sale_lead WHERE lead_id = %s", (lead_id,))
         old_status = old_status_row[0] if old_status_row else ''
         misc.sql_commit("UPDATE sale_lead SET dat_hang = 'T', status = 'Đã đặt hàng' WHERE lead_id = %s", (lead_id,))
+        misc.refresh_busy_for_lead(lead_id)
         misc.audit_log(self.user, 'CREATE_ORDER', 'so_bg', '-', so_bg, lead_id)
         misc.audit_log(self.user, 'UPDATE_STATUS', 'status', old_status, 'Đã đặt hàng', lead_id)
 
@@ -786,6 +787,7 @@ class OrderHandle(QMainWindow):
             old_paid = misc.sql_one("SELECT status FROM sale_lead WHERE lead_id = %s", (lead_id,))
             old_paid_status = old_paid[0] if old_paid else ''
             misc.sql_commit("UPDATE sale_lead SET status = 'Đã thanh toán' WHERE lead_id = %s", (lead_id,))
+            misc.refresh_busy_for_lead(lead_id)
             misc.audit_log(self.user, 'UPDATE_STATUS', 'status', old_paid_status, 'Đã thanh toán', lead_id)
 
         self.uic6.label_mo_ta_lead.setStyleSheet('color: red')
@@ -935,6 +937,8 @@ class OrderHandle(QMainWindow):
         else:
             misc.sql_commit("UPDATE ds_bao_gia SET thanh_toan = 'F' WHERE so_bg = %s", (so_bg,))
             misc.sql_commit("UPDATE sale_lead SET status = 'Đã đặt hàng' WHERE lead_id = %s", (lead_id,))
+
+        misc.refresh_busy_for_lead(lead_id)
 
         return da_thanh_toan_moi, phai_thu_moi, tien_hoan, is_full_return
 

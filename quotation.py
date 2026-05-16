@@ -820,10 +820,10 @@ class Quotato(QMainWindow):
             # Update trạng thái lead theo rule mới
             kq = misc.sql_one("SELECT * from sale_lead WHERE lead_id = %s", (lead_id, ))
 
-            if kq[10] in ['Đang xử lý', 'Đã giao việc từ Anna', 'Da giao viec tu Anna']:
-                # Khi sales sum/save báo giá đầu tiên cho lead do Anna giao -> chuyển sang Đã nhận việc
+            if kq[10] in ['Đang xử lý', 'Đã giao việc từ Anna', 'Da giao viec tu Anna', 'Anna đã giao việc']:
+                # Khi sales sum/save báo giá đầu tiên cho lead do Anna giao -> chuyển sang Đã nhận việc rồi refresh busy theo toàn bộ lead còn mở
                 misc.sql_commit("UPDATE sale_lead SET status = 'Đã nhận việc' WHERE lead_id = %s", (lead_id,))
-                misc.sql_commit("UPDATE user SET check_busy = '0' WHERE full_name = %s", (self.user,))
+                misc.refresh_user_busy(self.user)
 
             text = self.user + ' tạo/sửa báo giá số ' + str(so_bg) + '.'
             misc.send_to_telegram(text)
@@ -944,10 +944,12 @@ class Quotato(QMainWindow):
             max_id = misc.sql_one("SELECT MAX(lead_id) FROM sale_lead", None)[0]
             lead_id = str(int(max_id) + 1)
             time_create = datetime.now()
+            assigned_user = misc.pick_auto_assign_user(self.user)
             misc.sql_commit("INSERT INTO sale_lead SET lead_id = %s, name = %s, sdt = %s, address = %s, "
-                            "ten_co_hoi = %s, email = %s, yc = %s, time_create = %s, time_nhan_viec = %s, phu_trach = %s, nguoi_tao_lead = %s, status = 'Đã giao việc từ Anna', "
+                            "ten_co_hoi = %s, email = %s, yc = %s, time_create = %s, time_nhan_viec = %s, phu_trach = %s, nguoi_tao_lead = %s, status = %s, "
                             "company = %s, mst = %s",
-                            (lead_id, ten_khach, sdt, dia_chi, noidung, email, noidung, time_create, time_create, self.user, self.user, ten_cong_ty, mst))
+                            (lead_id, ten_khach, sdt, dia_chi, noidung, email, noidung, time_create, time_create, assigned_user, self.user, misc.LEAD_STATUS_ANNA_ASSIGNED, ten_cong_ty, mst))
+            misc.refresh_user_busy(assigned_user)
             ttkh = [ten_cong_ty, ten_khach, sdt, lead_id, noidung, mst]
 
             # [ten cong ty - ten khach hang - so dt - lead id - ten co hoi - mst]
@@ -967,7 +969,7 @@ class Quotato(QMainWindow):
             self.uic12.but_tao_don_hang.clicked.connect(lambda: Quotato.tao_don_hang(self, so_bg, lead_id, self.uic12))
 
             # Ghi lại thông tin khách hàng
-            lead_handle.LeadHandle.luu_thong_tin_kh(self, [ten_khach, sdt, ten_cong_ty, mst, self.user, lead_id, dia_chi])
+            lead_handle.LeadHandle.luu_thong_tin_kh(self, [ten_khach, sdt, ten_cong_ty, mst, assigned_user, lead_id, dia_chi])
             # ttkh = [ten_khach, sdt, cong_ty, mst, phu_trach, lead_id, diachi]
 
         else:

@@ -88,7 +88,7 @@
 border-color: rgb(0, 0, 177);</string>
     </property>
     <property name="placeholderText">
-     <string>Tên công ty để làm hợp đồng và xuất hóa đơn</string>
+     <string>Tên người liên hệ / khách hàng</string>
     </property>
    </widget>
    <widget class="QTextEdit" name="txt_so_dt">
@@ -132,7 +132,7 @@ border-color: rgb(0, 0, 177);</string>
 border-color: rgb(0, 0, 177);</string>
     </property>
     <property name="placeholderText">
-     <string>Tên khách hàng</string>
+     <string>Tên công ty để làm hợp đồng và xuất hóa đơn</string>
     </property>
    </widget>
    <widget class="QTextEdit" name="txt_email">
