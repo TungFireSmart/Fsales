@@ -412,50 +412,70 @@ class LeadHandle(QMainWindow):
         elif len(ten_lead.split()) < 2:
             self.uic3.label_noti.setText('📌 Cần ghi rõ tên cơ hội (ít nhất 2 từ).')
         else:
-            assigned_user = phu_trach
-            if assigned_user != 'waiting':
-                assigned_user = misc.pick_auto_assign_user(assigned_user)
+            selected_user = str(phu_trach or '').strip()
+            created_lead_id = str(lead_id)
+
+            if selected_user == 'waiting':
+                assigned_user = 'waiting'
+                status = 'Mới'
+            elif str(self.user or '').strip() == 'Anna':
+                # Anna-created leads follow the handoff workflow: auto-pick an available
+                # salesperson and wait for that salesperson to accept/rename the lead.
+                assigned_user = misc.pick_auto_assign_user(selected_user)
+                status = misc.LEAD_STATUS_ANNA_ASSIGNED
+            else:
+                # A normal salesperson explicitly chose the assignee in the UI. Do not
+                # silently rotate it away because the lead would disappear from their desk.
+                assigned_user = selected_user
+                status = 'Đã nhận việc'
 
             sql = (
                 "INSERT INTO sale_lead (lead_id, name, sdt, company, mst, yc, status, phu_trach, nguoi_tao_lead, ten_co_hoi, address) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
 
-            status = 'Mới' if assigned_user == 'waiting' else misc.LEAD_STATUS_ANNA_ASSIGNED
-            val = (lead_id, ten_khach, sdt, cong_ty, mst, yeu_cau, status, assigned_user, self.user, ten_lead, diachi)
+            val = (created_lead_id, ten_khach, sdt, cong_ty, mst, yeu_cau, status, assigned_user, self.user, ten_lead, diachi)
             misc.sql_commit(sql, val)
             if swapped_customer_fields:
                 self.uic3.txt_ten_khach_hang.setText(ten_khach)
                 self.uic3.txt_ten_cong_ty.setText(cong_ty)
-            misc.audit_log(self.user, 'CREATE_LEAD', 'lead_id', '-', lead_id, lead_id)
-            misc.audit_log(self.user, 'UPDATE_STATUS', 'status', '-', status, lead_id)
-            misc.audit_log(self.user, 'UPDATE_OWNER', 'phu_trach', '-', assigned_user, lead_id)
-            misc.audit_log(self.user, 'UPDATE_TITLE', 'ten_co_hoi', '-', ten_lead, lead_id)
+            misc.audit_log(self.user, 'CREATE_LEAD', 'lead_id', '-', created_lead_id, created_lead_id)
+            misc.audit_log(self.user, 'UPDATE_STATUS', 'status', '-', status, created_lead_id)
+            misc.audit_log(self.user, 'UPDATE_OWNER', 'phu_trach', '-', assigned_user, created_lead_id)
+            misc.audit_log(self.user, 'UPDATE_TITLE', 'ten_co_hoi', '-', ten_lead, created_lead_id)
 
             # Gửi tin nhắn Telegram
             if assigned_user == 'waiting':
-                misc.send_to_telegram(f"📥 {self.user} đã tạo mới một cơ hội bán hàng số {lead_id}")
+                misc.send_to_telegram(f"📥 {self.user} đã tạo mới một cơ hội bán hàng số {created_lead_id}")
             elif assigned_user == self.user:
-                misc.send_to_telegram(f"🧑‍💼 {self.user} đã tạo mới một cơ hội bán hàng số {lead_id} và tự xử lý")
+                misc.send_to_telegram(f"🧑‍💼 {self.user} đã tạo mới một cơ hội bán hàng số {created_lead_id} và tự xử lý")
             else:
                 misc.send_to_telegram(
-                    f"📤 {self.user} đã tạo mới một cơ hội bán hàng số {lead_id} và giao cho {assigned_user} xử lý")
+                    f"📤 {self.user} đã tạo mới một cơ hội bán hàng số {created_lead_id} và giao cho {assigned_user} xử lý")
 
             if assigned_user != 'waiting':
                 misc.refresh_user_busy(assigned_user)
 
-            # Lưu lịch sử và cập nhật giao diện
-            lead_id = str(int(misc.sql_one("SELECT MAX(lead_id) FROM sale_lead")[0]) + 1)
-            ttkh = [ten_khach, sdt, cong_ty, mst, assigned_user, lead_id, diachi]
+            # Lưu lịch sử và cập nhật giao diện cho đúng lead vừa tạo.
+            # Không dùng MAX(lead_id)+1 ở đây vì đó là ID kế tiếp, sẽ làm upload/sửa
+            # đính vào sai lead và khiến người dùng tưởng lead vừa tạo bị mất.
+            ttkh = [ten_khach, sdt, cong_ty, mst, assigned_user, created_lead_id, diachi]
 
             LeadHandle.luu_thong_tin_kh(self, ttkh)
+
+            # Refresh màn hình chính ngay sau khi tạo, để lead mới xuất hiện trên desk
+            # của người phụ trách mà không cần thoát/đăng nhập lại.
+            with suppress(Exception):
+                parent = self.parent()
+                if parent and hasattr(parent, 'show_lead'):
+                    parent.show_lead(getattr(parent, 'user', self.user))
 
             self.uic3.label_noti.setStyleSheet("color: green")
             self.uic3.label_noti.setText('✅ Đã tạo xong cơ hội bán hàng và ghi lên hệ thống!')
 
             self.uic3.but_upload.setEnabled(True)
-            self.uic3.but_upload.clicked.connect(lambda: LeadHandle.upload_file(self, lead_id, self.uic3))
+            self.uic3.but_upload.clicked.connect(lambda: LeadHandle.upload_file(self, created_lead_id, self.uic3))
             self.uic3.but_tao_lead.hide()
-            self.uic3.but_sua_lead.clicked.connect(lambda: LeadHandle.sua_lead(self, lead_id))
+            self.uic3.but_sua_lead.clicked.connect(lambda: LeadHandle.sua_lead(self, created_lead_id))
 
     def upload_file(self, lead_id, uic):
         ok, msg = misc.check_lead_ready_for_workflow(lead_id, allow_file_upload=True)
