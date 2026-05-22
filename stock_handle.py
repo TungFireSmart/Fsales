@@ -295,7 +295,7 @@ class StockHandle(QMainWindow):
     def san_pham_moi(self):
         """Open the product create/update window.
 
-        The stock screen's "S?n ph?m m?i" button is wired to this method. It was
+        The stock screen's "Sản phẩm mới" button is wired to this method. It was
         accidentally left commented out, so clicking the button raised an
         AttributeError from the PyQt slot and could make the app look like it had
         crashed/exited. Keep the window and UI as instance attributes so Qt does
@@ -305,7 +305,7 @@ class StockHandle(QMainWindow):
         self.uic9 = Ui_SanPhamMoi()
         self.uic9.setupUi(self.win_sp)
         apply_ui_v2(self.win_sp)
-        self.win_sp.setWindowTitle("Th?m/C?p nh?t s?n ph?m")
+        self.win_sp.setWindowTitle("Thêm/Cập nhật sản phẩm")
 
         self.uic9.but_save.clicked.connect(lambda: StockHandle.them_san_pham(self))
         self.uic9.but_update.clicked.connect(lambda: StockHandle.update_sp(self))
