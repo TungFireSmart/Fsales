@@ -15,6 +15,7 @@ import misc
 from UI.nhap_xuat_kho import Ui_NhapXuat
 from UI.phieu_nhap_kho import Ui_NhapKho
 from UI.phieu_xuat_kho_thue import Ui_xuat_kho_thue
+from UI.san_pham_moi import Ui_SanPhamMoi
 
 import stock_ui_utils
 
@@ -291,15 +292,27 @@ class StockHandle(QMainWindow):
 
         self.uic7.combo_sophieu.addItems(px)
 
-    # def san_pham_moi(self):
-    #     self.win_sp = QMainWindow()
-    #     self.uic9 = Ui_SanPhamMoi()
-    #     self.uic9.setupUi(self.win_sp)
-    #     self.win_sp.show()
-    #
-    #     self.uic9.but_save.clicked.connect(lambda: StockHandle.them_san_pham(self))
-    #     self.uic9.but_update.clicked.connect(lambda: StockHandle.update_sp(self))
-    #     self.uic9.txt_search.textChanged.connect(lambda: StockHandle.search_sp(self))
+    def san_pham_moi(self):
+        """Open the product create/update window.
+
+        The stock screen's "S?n ph?m m?i" button is wired to this method. It was
+        accidentally left commented out, so clicking the button raised an
+        AttributeError from the PyQt slot and could make the app look like it had
+        crashed/exited. Keep the window and UI as instance attributes so Qt does
+        not garbage-collect the form immediately after opening it.
+        """
+        self.win_sp = QMainWindow(self.win_stock)
+        self.uic9 = Ui_SanPhamMoi()
+        self.uic9.setupUi(self.win_sp)
+        apply_ui_v2(self.win_sp)
+        self.win_sp.setWindowTitle("Th?m/C?p nh?t s?n ph?m")
+
+        self.uic9.but_save.clicked.connect(lambda: StockHandle.them_san_pham(self))
+        self.uic9.but_update.clicked.connect(lambda: StockHandle.update_sp(self))
+        self.uic9.but_search.clicked.connect(lambda: StockHandle.search_sp(self))
+        self.uic9.txt_search.textChanged.connect(lambda: StockHandle.search_sp(self))
+
+        self.win_sp.show()
 
     def update_sp(self):
         ttsp = [self.uic9.txt_ten_sp.toPlainText().strip(),
@@ -328,7 +341,7 @@ class StockHandle(QMainWindow):
                 self.uic9.label_noti.repaint()
                 return
 
-            if any(len(item) for item in ttsp) == 0:
+            if any(len(item) == 0 for item in ttsp):
                 self.uic9.label_noti.setStyleSheet('Color: red')
                 self.uic9.label_noti.setText('Chưa đủ thông tin!')
                 self.uic9.label_noti.repaint()
@@ -422,7 +435,7 @@ class StockHandle(QMainWindow):
                 self.uic9.label_noti.repaint()
                 return
 
-            if any(len(item) for item in ttsp) == 0:
+            if any(len(item) == 0 for item in ttsp):
                 self.uic9.label_noti.setStyleSheet('Color: red')
                 self.uic9.label_noti.setText('Chưa đủ thông tin!')
                 self.uic9.label_noti.repaint()
