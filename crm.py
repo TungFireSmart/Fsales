@@ -1935,10 +1935,15 @@ class Crm(QMainWindow):
 
             base_dir = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
 
-            template = base_dir / 'mau_hop_dong.docx'
+            template_candidates = [
+                base_dir / 'mau_hop_dong.docx',
+                Path(misc.get_resource_path('mau_hop_dong.docx')),
+            ]
+            template = next((p for p in template_candidates if p.exists()), template_candidates[0])
             if not template.exists():
                 self.uic9.label_noti.setStyleSheet('color: red')
-                self.uic9.label_noti.setText(f'❌ Không tìm thấy template mau_hop_dong.docx tại: {base_dir}')
+                checked_paths = '; '.join(str(p) for p in template_candidates)
+                self.uic9.label_noti.setText(f'❌ Không tìm thấy template mau_hop_dong.docx tại: {checked_paths}')
                 return
 
             out_dir = base_dir / 'hop_dong_out'

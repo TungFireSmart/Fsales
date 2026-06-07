@@ -17,6 +17,7 @@ from stock_handle import StockHandle
 from quotation import Quotato
 from login_handle import check_saved_login, handle_login, handle_logout
 from price_list_manager import PriceListManager
+from tu_van_pccc import TuVanPCCC
 
 # Phần AI
 from AI.ai_chat_window import AIChatWindow
@@ -135,6 +136,14 @@ class MainWindow(QMainWindow):
     def open_ai_chat(self):
         self.ai_chat = AIChatWindow(self, self.user_power)
         self.ai_chat.show()
+
+    def open_tu_van_pccc(self):
+        """Mở cửa sổ Tư vấn & Báo giá PCCC (QCVN 10:2025/BCA)."""
+        try:
+            self.tu_van_pccc_win = TuVanPCCC(user=self.user, user_phone=self.user_phone)
+            self.tu_van_pccc_win.show()
+        except Exception as e:
+            QMessageBox.critical(self, "Lỗi mở Tư vấn PCCC", str(e))
 
     def _run_update(self, info: dict):
         app_dir = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
@@ -257,6 +266,10 @@ class MainWindow(QMainWindow):
         self.uic.but_sua_bang_gia.setEnabled(is_manager)
         self.uic.but_quan_ly_kho.setEnabled(is_manager)
 
+        # Tư vấn PCCC: tất cả user đăng nhập đều dùng được
+        self.uic.but_tu_van_pccc.setVisible(True)
+        self.uic.but_tu_van_pccc.setEnabled(True)
+
         self.uic.label_so_co_hoi.setText(misc.header_label(self.user))
         self.uic.label_so_co_hoi.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.uic.label_doanh_so.setText(misc.header_label_doanh_so(self.user))
@@ -300,6 +313,13 @@ class MainWindow(QMainWindow):
 
         # Quản lý kho
         self.uic.but_quan_ly_kho.clicked.connect(lambda: StockHandle.quan_ly_kho(self))
+
+        # Tư vấn PCCC — mở cửa sổ tư vấn & báo giá theo QCVN 10:2025
+        try:
+            self.uic.but_tu_van_pccc.clicked.disconnect()
+        except Exception:
+            pass
+        self.uic.but_tu_van_pccc.clicked.connect(self.open_tu_van_pccc)
         # self.uic.but_tao_don_hang.clicked.connect(self.show_quotato)
 
         # Quản lý báo cáo

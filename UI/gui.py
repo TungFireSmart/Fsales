@@ -180,6 +180,27 @@ class Ui_MainWindow(object):
         self.but_sua_bang_gia.setMinimumSize(QtCore.QSize(115, 31))
         self.but_sua_bang_gia.setObjectName("but_sua_bang_gia")
         self.verticalLayout_actions.addWidget(self.but_sua_bang_gia)
+        self.but_tu_van_pccc = QtWidgets.QPushButton(parent=self.centralwidget)
+        self.but_tu_van_pccc.setEnabled(False)
+        self.but_tu_van_pccc.setMinimumSize(QtCore.QSize(115, 31))
+        self.but_tu_van_pccc.setStyleSheet("QPushButton#but_tu_van_pccc {\n"
+"    background-color: #0f766e;\n"
+"    color: white;\n"
+"    border-radius: 6px;\n"
+"    font-weight: 600;\n"
+"}\n"
+"QPushButton#but_tu_van_pccc:hover {\n"
+"    background-color: #0d8a80;\n"
+"}\n"
+"QPushButton#but_tu_van_pccc:pressed {\n"
+"    background-color: #0a5e57;\n"
+"}\n"
+"QPushButton#but_tu_van_pccc:disabled {\n"
+"    background-color: #cbd5e1;\n"
+"    color: #64748b;\n"
+"}")
+        self.but_tu_van_pccc.setObjectName("but_tu_van_pccc")
+        self.verticalLayout_actions.addWidget(self.but_tu_van_pccc)
         self.but_logout = QtWidgets.QPushButton(parent=self.centralwidget)
         self.but_logout.setEnabled(False)
         self.but_logout.setMinimumSize(QtCore.QSize(115, 31))
@@ -235,6 +256,7 @@ class Ui_MainWindow(object):
         self.but_baocao.setText(_translate("MainWindow", "Reports"))
         self.but_quan_ly_kho.setText(_translate("MainWindow", "Quản lý kho"))
         self.but_sua_bang_gia.setText(_translate("MainWindow", "Sửa bảng giá"))
+        self.but_tu_van_pccc.setText(_translate("MainWindow", "Tư vấn PCCC"))
         self.but_logout.setText(_translate("MainWindow", "Logout"))
         self.but_chat.setText(_translate("MainWindow", "Chat với Anna"))
         self.label_version.setText(_translate("MainWindow", "..."))

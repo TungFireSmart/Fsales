@@ -175,6 +175,40 @@ QPushButton#but_tao_co_hoi:pressed {
      <string>Sửa bảng giá</string>
     </property>
    </widget>
+   <widget class="QPushButton" name="but_tu_van_pccc">
+    <property name="enabled">
+     <bool>false</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>820</x>
+      <y>460</y>
+      <width>115</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QPushButton#but_tu_van_pccc {
+    background-color: #0f766e;
+    color: white;
+    border-radius: 6px;
+    font-weight: 600;
+}
+QPushButton#but_tu_van_pccc:hover {
+    background-color: #0d8a80;
+}
+QPushButton#but_tu_van_pccc:pressed {
+    background-color: #0a5e57;
+}
+QPushButton#but_tu_van_pccc:disabled {
+    background-color: #cbd5e1;
+    color: #64748b;
+}</string>
+    </property>
+    <property name="text">
+     <string>Tư vấn PCCC</string>
+    </property>
+   </widget>
    <widget class="QPushButton" name="but_logout">
     <property name="enabled">
      <bool>false</bool>

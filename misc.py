@@ -143,6 +143,44 @@ LEAD_READY_STATUS = {
     'Done - Thất bại',
 }
 
+
+def build_workflow_lead_title(name='', need=''):
+    """Tạo tên cơ hội an toàn khi lead Anna vẫn đang dùng title placeholder.
+
+    Lead do Anna tạo bắt đầu bằng placeholder để sales biết cần đặt tên lại.
+    Tuy nhiên màn hình cập nhật lead hiện không có ô sửa `ten_co_hoi`, nên nếu
+    sales đã nhận việc và bấm tạo báo giá thì cần tự materialize một tên cơ hội
+    đủ dùng thay vì chặn workflow.
+    """
+    name = re.sub(r'\s+', ' ', str(name or '').strip())
+    need = re.sub(r'\s+', ' ', str(need or '').strip())
+
+    if name and need:
+        title = f"{name} - {need}"
+    elif need:
+        title = need
+    elif name:
+        title = f"Nhu cầu báo giá - {name}"
+    else:
+        title = "Nhu cầu báo giá khách hàng"
+
+    return title[:120].rstrip(' -')
+
+
+def ensure_lead_title_before_quote(lead_id, actor='system'):
+    row = sql_one("SELECT name, yc, ten_co_hoi FROM sale_lead WHERE lead_id = %s", (lead_id,))
+    if not row:
+        return
+
+    old_title = str(row[2] or '').strip()
+    if old_title and old_title != LEAD_TITLE_PLACEHOLDER_ANNA:
+        return
+
+    new_title = build_workflow_lead_title(row[0], row[1])
+    sql_commit("UPDATE sale_lead SET ten_co_hoi = %s WHERE lead_id = %s", (new_title, lead_id))
+    audit_log(actor or 'system', 'UPDATE_TITLE', 'ten_co_hoi', old_title or '(trống)', new_title, lead_id)
+
+
 USER_BUSY_BLOCKING_STATUSES = {
     'Đã nhận việc',
     'Đã quá hạn báo giá',
@@ -386,6 +424,8 @@ def tao_bao_gia(lead_id, user):
     sobaogia = 1 if kq[0] is None else int(kq[0]) + 1
 
     lead_id = int(lead_id)
+
+    ensure_lead_title_before_quote(lead_id, user)
 
     ok, msg = check_lead_ready_for_workflow(lead_id)
     if not ok:
