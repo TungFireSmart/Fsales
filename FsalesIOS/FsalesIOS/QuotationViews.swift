@@ -4,14 +4,23 @@ struct QuotationListView: View {
     @Environment(SalesStore.self) private var store
     @Environment(SalesRouter.self) private var router
 
+    private var sortedQuotations: [Quotation] {
+        store.quotations.sorted { $0.createdAt > $1.createdAt }
+    }
+
     var body: some View {
-        List(store.quotations.sorted { $0.createdAt > $1.createdAt }) { quotation in
-            Button {
-                router.navigate(to: .quotationDetail(quotation.id))
-            } label: {
-                QuotationRowView(quotation: quotation, lead: store.lead(id: quotation.leadID))
+        List {
+            ForEach(sortedQuotations) { quotation in
+                Button {
+                    router.navigate(to: .quotationDetail(quotation.id))
+                } label: {
+                    QuotationRowView(quotation: quotation, lead: store.lead(id: quotation.leadID))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .onDelete { offsets in
+                store.deleteQuotations(at: offsets, filteredBy: sortedQuotations)
+            }
         }
         .navigationTitle("Báo giá")
     }
@@ -95,6 +104,20 @@ struct QuotationDetailView: View {
                         }
                     }
 
+                    Section("Trạng thái") {
+                        Button {
+                            store.markQuotation(quotation.id, status: .sent)
+                        } label: {
+                            Label("Đánh dấu đã gửi", systemImage: "paperplane")
+                        }
+
+                        Button {
+                            store.markQuotation(quotation.id, status: .accepted)
+                        } label: {
+                            Label("Đánh dấu đã chấp nhận", systemImage: "checkmark.seal")
+                        }
+                    }
+
                     if !quotation.note.isEmpty {
                         Section("Ghi chú") {
                             Text(quotation.note)
@@ -102,10 +125,37 @@ struct QuotationDetailView: View {
                     }
                 }
                 .navigationTitle(quotation.quoteNumber)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ShareLink(item: quoteShareText(quotation)) {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .accessibilityLabel("Chia sẻ báo giá")
+                    }
+                }
             } else {
                 ContentUnavailableView("Không tìm thấy báo giá", systemImage: "doc.text.magnifyingglass")
             }
         }
+    }
+
+    private func quoteShareText(_ quotation: Quotation) -> String {
+        let lead = store.lead(id: quotation.leadID)
+        let lines = quotation.lines.map {
+            "- \($0.itemName): SL \($0.quantity), \((SalesFormatters.money($0.total)))"
+        }.joined(separator: "\n")
+
+        return """
+        \(quotation.quoteNumber)
+        Khách hàng: \(lead?.customerName ?? "-")
+        Công ty: \(lead?.companyName ?? "-")
+        Hiệu lực: \(SalesFormatters.date(quotation.validUntil))
+
+        \(lines)
+
+        Tổng cộng: \(SalesFormatters.money(quotation.subtotal))
+        Ghi chú: \(quotation.note)
+        """
     }
 }
 
@@ -114,12 +164,12 @@ struct QuotationEditorView: View {
     @Environment(\.dismiss) private var dismiss
     let leadID: Lead.ID
 
-    @State private var quoteNumber = "BG-2026-002"
+    @State private var quoteNumber = ""
     @State private var status = QuotationStatus.draft
     @State private var validUntil = Date.now.addingTimeInterval(86_400 * 14)
     @State private var note = ""
     @State private var lines: [QuotationLine] = [
-        QuotationLine(itemName: "", quantity: 1, unitPrice: 0)
+        QuotationLine(productID: nil, itemName: "", quantity: 1, unitPrice: 0)
     ]
 
     private var total: Double {
@@ -147,7 +197,7 @@ struct QuotationEditorView: View {
                 }
 
                 Button {
-                    lines.append(QuotationLine(itemName: "", quantity: 1, unitPrice: 0))
+                    lines.append(QuotationLine(productID: nil, itemName: "", quantity: 1, unitPrice: 0))
                 } label: {
                     Label("Thêm dòng", systemImage: "plus")
                 }
@@ -180,6 +230,11 @@ struct QuotationEditorView: View {
                 .disabled(!canSave)
             }
         }
+        .onAppear {
+            if quoteNumber.isEmpty {
+                quoteNumber = store.nextQuoteNumber()
+            }
+        }
     }
 
     private var canSave: Bool {
@@ -205,10 +260,27 @@ struct QuotationEditorView: View {
 }
 
 struct QuotationLineEditor: View {
+    @Environment(SalesStore.self) private var store
     @Binding var line: QuotationLine
+
+    private var activeProducts: [Product] {
+        store.products.filter(\.isActive).sorted { $0.name < $1.name }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Picker("Sản phẩm", selection: $line.productID) {
+                Text("Tùy chỉnh").tag(nil as Product.ID?)
+                ForEach(activeProducts) { product in
+                    Text(product.name).tag(Optional(product.id))
+                }
+            }
+            .onChange(of: line.productID) { _, newValue in
+                guard let product = store.product(id: newValue) else { return }
+                line.itemName = product.name
+                line.unitPrice = product.unitPrice
+            }
+
             TextField("Tên hàng hóa", text: $line.itemName)
 
             HStack {

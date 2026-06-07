@@ -16,13 +16,18 @@ struct LeadListView: View {
     }
 
     var body: some View {
-        List(filteredLeads) { lead in
-            Button {
-                router.navigate(to: .leadDetail(lead.id))
-            } label: {
-                LeadRowView(lead: lead, quoteCount: store.quotations(for: lead.id).count)
+        List {
+            ForEach(filteredLeads) { lead in
+                Button {
+                    router.navigate(to: .leadDetail(lead.id))
+                } label: {
+                    LeadRowView(lead: lead, quoteCount: store.quotations(for: lead.id).count)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .onDelete { offsets in
+                store.deleteLeads(at: offsets, filteredBy: filteredLeads)
+            }
         }
         .searchable(text: $query, prompt: "Tìm lead")
         .navigationTitle("Leads")
@@ -87,10 +92,11 @@ struct LeadDetailView: View {
                         DetailRow(label: "Điện thoại", value: lead.phone)
                         DetailRow(label: "Email", value: lead.email)
                         DetailRow(label: "Phụ trách", value: lead.owner)
+                        DetailRow(label: "Trạng thái", value: lead.status.displayName)
                     }
 
                     Section("Nhu cầu") {
-                        Text(lead.needSummary)
+                        Text(lead.needSummary.isEmpty ? "Chưa nhập nhu cầu." : lead.needSummary)
                     }
 
                     Section("Báo giá") {
@@ -231,6 +237,8 @@ struct StatusBadge: View {
     var body: some View {
         Text(text)
             .font(.caption.weight(.medium))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(.blue.opacity(0.12), in: Capsule())

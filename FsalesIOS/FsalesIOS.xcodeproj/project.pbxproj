@@ -15,6 +15,9 @@
 		1A0001010000000000000006 /* LeadViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0002010000000000000006 /* LeadViews.swift */; };
 		1A0001010000000000000007 /* QuotationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0002010000000000000007 /* QuotationViews.swift */; };
 		1A0001010000000000000008 /* FSalesIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0002010000000000000008 /* FSalesIntents.swift */; };
+		1A0001010000000000000009 /* Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0002010000000000000009 /* Persistence.swift */; };
+		1A000101000000000000000A /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000201000000000000000A /* DashboardView.swift */; };
+		1A000101000000000000000B /* ProductViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000201000000000000000B /* ProductViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +29,9 @@
 		1A0002010000000000000006 /* LeadViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeadViews.swift; sourceTree = "<group>"; };
 		1A0002010000000000000007 /* QuotationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotationViews.swift; sourceTree = "<group>"; };
 		1A0002010000000000000008 /* FSalesIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FSalesIntents.swift; sourceTree = "<group>"; };
+		1A0002010000000000000009 /* Persistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persistence.swift; sourceTree = "<group>"; };
+		1A000201000000000000000A /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		1A000201000000000000000B /* ProductViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductViews.swift; sourceTree = "<group>"; };
 		1A0002020000000000000001 /* FsalesIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FsalesIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -56,8 +62,11 @@
 				1A0002010000000000000003 /* SalesStore.swift */,
 				1A0002010000000000000004 /* AppShellView.swift */,
 				1A0002010000000000000005 /* Formatters.swift */,
+				1A0002010000000000000009 /* Persistence.swift */,
+				1A000201000000000000000A /* DashboardView.swift */,
 				1A0002010000000000000006 /* LeadViews.swift */,
 				1A0002010000000000000007 /* QuotationViews.swift */,
+				1A000201000000000000000B /* ProductViews.swift */,
 				1A0002010000000000000008 /* FSalesIntents.swift */,
 			);
 			path = FsalesIOS;
@@ -144,8 +153,11 @@
 				1A0001010000000000000003 /* SalesStore.swift in Sources */,
 				1A0001010000000000000004 /* AppShellView.swift in Sources */,
 				1A0001010000000000000005 /* Formatters.swift in Sources */,
+				1A0001010000000000000009 /* Persistence.swift in Sources */,
+				1A000101000000000000000A /* DashboardView.swift in Sources */,
 				1A0001010000000000000006 /* LeadViews.swift in Sources */,
 				1A0001010000000000000007 /* QuotationViews.swift in Sources */,
+				1A000101000000000000000B /* ProductViews.swift in Sources */,
 				1A0001010000000000000008 /* FSalesIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

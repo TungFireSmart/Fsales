@@ -55,8 +55,20 @@ struct Lead: Identifiable, Hashable, Codable {
     var lastUpdatedAt: Date
 }
 
+struct Product: Identifiable, Hashable, Codable {
+    var id = UUID()
+    var code: String
+    var name: String
+    var category: String
+    var unit: String
+    var unitPrice: Double
+    var stockQuantity: Int
+    var isActive: Bool
+}
+
 struct QuotationLine: Identifiable, Hashable, Codable {
     var id = UUID()
+    var productID: Product.ID?
     var itemName: String
     var quantity: Int
     var unitPrice: Double
@@ -79,4 +91,10 @@ struct Quotation: Identifiable, Hashable, Codable {
     var subtotal: Double {
         lines.reduce(0) { $0 + $1.total }
     }
+}
+
+struct SalesSnapshot: Codable {
+    var leads: [Lead]
+    var products: [Product]
+    var quotations: [Quotation]
 }
