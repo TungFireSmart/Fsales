@@ -20,6 +20,10 @@ struct DashboardView: View {
             .reduce(0) { $0 + $1.subtotal }
     }
 
+    private var orderValue: Double {
+        store.orders.reduce(0) { $0 + $1.subtotal }
+    }
+
     var body: some View {
         List {
             if let error = store.lastSaveError {
@@ -37,6 +41,10 @@ struct DashboardView: View {
                 HStack(spacing: 12) {
                     MetricTile(title: "Pipeline", value: SalesFormatters.compactMoney(pipelineValue), symbol: "chart.line.uptrend.xyaxis")
                     MetricTile(title: "Đã chốt", value: SalesFormatters.compactMoney(acceptedValue), symbol: "checkmark.seal")
+                }
+                HStack(spacing: 12) {
+                    MetricTile(title: "Đơn hàng", value: "\(store.orders.count)", symbol: "cart")
+                    MetricTile(title: "Doanh số", value: SalesFormatters.compactMoney(orderValue), symbol: "banknote")
                 }
             }
 

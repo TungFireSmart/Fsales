@@ -3,6 +3,7 @@ import SwiftUI
 enum AppRoute: Hashable {
     case leadDetail(Lead.ID)
     case quotationDetail(Quotation.ID)
+    case orderDetail(SalesOrder.ID)
     case productDetail(Product.ID)
 }
 
@@ -35,6 +36,7 @@ struct AppShellView: View {
     @State private var dashboardRouter = SalesRouter()
     @State private var leadRouter = SalesRouter()
     @State private var quotationRouter = SalesRouter()
+    @State private var orderRouter = SalesRouter()
     @State private var productRouter = SalesRouter()
 
     var body: some View {
@@ -78,6 +80,16 @@ struct AppShellView: View {
             .tabItem {
                 Label("Sản phẩm", systemImage: "shippingbox")
             }
+
+            NavigationStack(path: $orderRouter.path) {
+                OrderListView()
+                    .withSalesDestinations()
+            }
+            .environment(orderRouter)
+            .withSalesSheets(sheet: $orderRouter.presentedSheet)
+            .tabItem {
+                Label("Đơn hàng", systemImage: "cart")
+            }
         }
     }
 }
@@ -90,6 +102,8 @@ private extension View {
                 LeadDetailView(leadID: id)
             case .quotationDetail(let id):
                 QuotationDetailView(quotationID: id)
+            case .orderDetail(let id):
+                OrderDetailView(orderID: id)
             case .productDetail(let id):
                 ProductDetailView(productID: id)
             }

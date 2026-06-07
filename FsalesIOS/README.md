@@ -8,6 +8,9 @@ Current scope:
 - Product catalog list, search, detail, create, edit, and delete.
 - Quotation list, detail, status update, share text, and create-from-lead flow.
 - Quotation lines can be filled from the product catalog or edited manually.
+- Create sales orders from accepted quotations.
+- Order list/detail with confirmed, delivered, paid, and cancelled statuses.
+- Product stock is reduced when an order is created from product-backed quotation lines.
 - Local JSON persistence in Application Support.
 - App Intent shortcut to open the quotation workflow.
 

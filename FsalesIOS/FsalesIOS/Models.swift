@@ -42,6 +42,26 @@ enum QuotationStatus: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+enum OrderStatus: String, CaseIterable, Identifiable, Codable {
+    case new = "Moi"
+    case confirmed = "Da xac nhan"
+    case delivered = "Da giao hang"
+    case paid = "Da thanh toan"
+    case cancelled = "Da huy"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .new: "Mới"
+        case .confirmed: "Đã xác nhận"
+        case .delivered: "Đã giao hàng"
+        case .paid: "Đã thanh toán"
+        case .cancelled: "Đã hủy"
+        }
+    }
+}
+
 struct Lead: Identifiable, Hashable, Codable {
     var id = UUID()
     var customerName: String
@@ -93,8 +113,39 @@ struct Quotation: Identifiable, Hashable, Codable {
     }
 }
 
+struct SalesOrder: Identifiable, Hashable, Codable {
+    var id = UUID()
+    var quotationID: Quotation.ID
+    var leadID: Lead.ID
+    var orderNumber: String
+    var status: OrderStatus
+    var note: String
+    var lines: [QuotationLine]
+    var createdAt: Date
+
+    var subtotal: Double {
+        lines.reduce(0) { $0 + $1.total }
+    }
+}
+
 struct SalesSnapshot: Codable {
     var leads: [Lead]
     var products: [Product]
     var quotations: [Quotation]
+    var orders: [SalesOrder]
+
+    init(leads: [Lead], products: [Product], quotations: [Quotation], orders: [SalesOrder] = []) {
+        self.leads = leads
+        self.products = products
+        self.quotations = quotations
+        self.orders = orders
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        leads = try container.decodeIfPresent([Lead].self, forKey: .leads) ?? []
+        products = try container.decodeIfPresent([Product].self, forKey: .products) ?? []
+        quotations = try container.decodeIfPresent([Quotation].self, forKey: .quotations) ?? []
+        orders = try container.decodeIfPresent([SalesOrder].self, forKey: .orders) ?? []
+    }
 }

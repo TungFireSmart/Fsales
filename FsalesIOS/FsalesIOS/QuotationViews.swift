@@ -56,6 +56,7 @@ struct QuotationRowView: View {
 
 struct QuotationDetailView: View {
     @Environment(SalesStore.self) private var store
+    @Environment(SalesRouter.self) private var router
     let quotationID: Quotation.ID
 
     private var quotation: Quotation? {
@@ -115,6 +116,22 @@ struct QuotationDetailView: View {
                             store.markQuotation(quotation.id, status: .accepted)
                         } label: {
                             Label("Đánh dấu đã chấp nhận", systemImage: "checkmark.seal")
+                        }
+
+                        if let order = store.order(for: quotation.id) {
+                            Button {
+                                router.navigate(to: .orderDetail(order.id))
+                            } label: {
+                                Label("Mở đơn hàng \(order.orderNumber)", systemImage: "cart")
+                            }
+                        } else {
+                            Button {
+                                if let order = store.createOrder(from: quotation.id) {
+                                    router.navigate(to: .orderDetail(order.id))
+                                }
+                            } label: {
+                                Label("Tạo đơn hàng", systemImage: "cart.badge.plus")
+                            }
                         }
                     }
 
