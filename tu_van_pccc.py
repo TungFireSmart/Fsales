@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QTableWidget, QTableWidgetItem, QTabWidget, QGridLayout,
     QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox, QFileDialog,
     QMessageBox, QHeaderView, QAbstractItemView, QSplitter, QTextEdit,
-    QSpinBox, QDoubleSpinBox, QSizePolicy
+    QSpinBox, QDoubleSpinBox, QSizePolicy, QScrollArea
 )
 
 import misc
@@ -85,8 +85,12 @@ class TuVanPCCC(QMainWindow):
             "so_loi_ra_phong": 0, "dai_hanh_lang": 0.0, "so_chieu_nghi": 0,
         }
         self.last_result = None  # kết quả phan_tich() gần nhất
+        self.last_result_raw = None  # bản gốc trước khi apply optional_wants
+        self.optional_wants = set()  # tập nhóm user chọn "Muốn trang bị"
         self.bg_rows = []        # danh sách báo giá hiện tại
         self.bg_group = 'khong_day'   # nhóm hệ báo cháy: khong_day | co_day | cuc_bo
+        self._dt_user_modified = False
+        self._hl_user_modified = False
         # Thông số cấp nước CC (TCVN 2622)
         self.bac_chiu_lua = "II"
         self.hang_sx = "C"
@@ -151,6 +155,18 @@ class TuVanPCCC(QMainWindow):
         self.tn_cau_thang = u.tn_cau_thang
         self.tn_loi_ra_phong = u.tn_loi_ra_phong
         self.tn_dai_hl = u.tn_dai_hl
+        # Thêm field "Chiều rộng hành lang" programmatically
+        self.tn_rong_hl = QDoubleSpinBox()
+        self.tn_rong_hl.setRange(0.5, 99.0)
+        self.tn_rong_hl.setDecimals(1)
+        self.tn_rong_hl.setSuffix(" m")
+        self.tn_rong_hl.setValue(3.0)
+        self.tn_rong_hl.setToolTip(
+            "Chiều rộng hành lang (mặc định 3m). "
+            "Dùng để tính DT hành lang trừ vào DT phòng.")
+        _form_tn = self.tn_dai_hl.parent().layout() if self.tn_dai_hl.parent() else None
+        if _form_tn and hasattr(_form_tn, "addRow"):
+            _form_tn.addRow("Chiều rộng hành lang:", self.tn_rong_hl)
         self.tn_chieu_nghi = u.tn_chieu_nghi
         self.lbl_tn_result = u.lbl_tn_result
         # Tab 4
@@ -165,6 +181,8 @@ class TuVanPCCC(QMainWindow):
 
         # Tab thêm bằng code: "④ Cấp nước CC" — chèn trước Báo giá
         self._build_tab_cap_nuoc()
+        # Tab thêm bằng code: "⑦ Hồ sơ pháp lý" — NĐ 105/2025
+        self._build_tab_ho_so_phap_ly()
 
         # ----- Populate cbo_cong_nang (26 công năng từ R.CONG_NANG_LIST) -----
         self.cbo_cong_nang.setSizeAdjustPolicy(
@@ -204,6 +222,9 @@ class TuVanPCCC(QMainWindow):
         self.tb_thiet_bi.setColumnWidth(2, 200)
         self.tb_thiet_bi.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tb_thiet_bi.setWordWrap(True)
+        # cellPressed fire ngay khi mouse-down — chắc chắn nhận event hơn
+        # cellClicked (vốn chỉ fire sau release trên cùng cell)
+        self.tb_thiet_bi.cellPressed.connect(self._on_thiet_bi_clicked)
 
         # ----- Tab 2: cov + bulk + tableWidget -----
         self.sp_dt_khoi.valueChanged.connect(self._on_cov_changed)
@@ -228,7 +249,7 @@ class TuVanPCCC(QMainWindow):
         # ----- Tab 3: connect thoát nạn signals -----
         for s in (self.tn_kc_sc, self.tn_kc_exit, self.tn_loi_ra_ngoai,
                   self.tn_cau_thang, self.tn_loi_ra_phong, self.tn_dai_hl,
-                  self.tn_chieu_nghi):
+                  self.tn_chieu_nghi, self.tn_rong_hl):
             s.valueChanged.connect(self._on_tn_changed)
 
         # ----- Tab 4: setup tb_bg — đồng bộ độ rộng cột với Fsales quotation form
@@ -282,14 +303,51 @@ class TuVanPCCC(QMainWindow):
         # Init: ẩn/hiện field nguoi/chau theo công năng đầu tiên
         self._on_cong_nang_changed()
 
+        # ----- Auto re-run khi đổi input + auto-fill DT/HL + reset border đỏ -----
+        for sp in (self.spin_dt, self.spin_cao, self.spin_dai, self.spin_rong,
+                   self.spin_tang, self.spin_ham, self.spin_so_phong,
+                   self.spin_nguoi, self.spin_chau):
+            sp.editingFinished.connect(self._on_input_changed)
+        self.cbo_cong_nang.currentIndexChanged.connect(
+            lambda _i: self._on_input_changed())
+        # Auto-fill DT
+        for sp in (self.spin_dai, self.spin_rong, self.spin_tang, self.spin_ham):
+            sp.editingFinished.connect(self._auto_fill_dt)
+        self.spin_dt.editingFinished.connect(self._on_dt_edited_by_user)
+        # Auto-fill HL
+        for sp in (self.spin_dai, self.spin_tang, self.spin_ham, self.spin_so_phong):
+            sp.editingFinished.connect(self._auto_fill_hl_dai)
+        self.cbo_cong_nang.currentIndexChanged.connect(
+            lambda _i: self._auto_fill_hl_dai())
+        # Reset border đỏ khi user gõ vào field thiếu
+        for w in (self.cbo_cong_nang, self.spin_dt, self.spin_cao,
+                  self.spin_dai, self.spin_rong, self.spin_tang,
+                  self.spin_nguoi, self.spin_chau):
+            if hasattr(w, "editingFinished"):
+                w.editingFinished.connect(lambda w=w: w.setStyleSheet(""))
+            elif hasattr(w, "currentIndexChanged"):
+                w.currentIndexChanged.connect(lambda _i, w=w: w.setStyleSheet(""))
+
     # ---------------- TAB CẤP NƯỚC CC ----------------
     def _build_tab_cap_nuoc(self):
-        """Tạo tab 'Cấp nước CC' bằng code, chèn trước tab Báo giá."""
+        """Tạo tab 'Cấp nước CC' bằng code, chèn trước tab Báo giá.
+        Wrap nội dung trong QScrollArea vì phần thuyết minh có thể dài."""
         tab = QWidget()
-        v = QVBoxLayout(tab)
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        outer.addWidget(scroll)
+
+        inner = QWidget()
+        scroll.setWidget(inner)
+        v = QVBoxLayout(inner)
         v.setContentsMargins(10, 10, 10, 10)
 
-        gb = QGroupBox("Thông số cấp nước chữa cháy (TCVN 2622:1995)")
+        gb = QGroupBox("Thông số cấp nước chữa cháy (QCVN 10:2025/BCA + QCVN 06:2022)")
         form = QFormLayout(gb)
 
         # Bậc chịu lửa
@@ -306,14 +364,39 @@ class TuVanPCCC(QMainWindow):
         self.cbo_hang_sx.setCurrentIndex(2)  # mặc định C
         form.addRow("Hạng sản xuất:", self.cbo_hang_sx)
 
-        # Hệ số họng/điểm
+        # Cấp nguy hiểm cháy của kết cấu (QCVN 06:2022, dùng cho Bảng H.6)
+        self.cbo_cap_nhc = QComboBox()
+        self.cbo_cap_nhc.addItem("S0 - Không nguy hiểm cháy (kết cấu không cháy)", "S0")
+        self.cbo_cap_nhc.addItem("S1 - Nguy hiểm cháy thấp", "S1")
+        self.cbo_cap_nhc.addItem("S2 - Nguy hiểm cháy trung bình", "S2")
+        self.cbo_cap_nhc.addItem("S3 - Nguy hiểm cháy cao", "S3")
+        self.cbo_cap_nhc.setCurrentIndex(0)
+        self.cbo_cap_nhc.setToolTip(
+            "QCVN 06:2022 — Cấp NHC kết cấu (S0/S1/S2/S3). "
+            "Chỉ áp dụng cho nhà SX/kho (Bảng H.6 QCVN 10:2025).")
+        form.addRow("Cấp nguy hiểm KC:", self.cbo_cap_nhc)
+
+        # Hệ số họng/điểm — read-only, tự tính
         self.spin_he_so_hong = QSpinBox()
         self.spin_he_so_hong.setRange(1, 3)
         self.spin_he_so_hong.setValue(1)
+        self.spin_he_so_hong.setReadOnly(True)
+        self.spin_he_so_hong.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self.spin_he_so_hong.setStyleSheet("background:#f3f4f6; color:#374151;")
         self.spin_he_so_hong.setToolTip(
-            "Bảng 14 TCVN 2622: 1 hoặc 2 họng/điểm. "
-            "App auto-gợi ý dựa trên công năng + kích thước.")
-        form.addRow("Hệ số họng/điểm:", self.spin_he_so_hong)
+            "Hệ số họng/điểm tự tính theo QCVN 10:2025 Bảng H.5/H.6 — không sửa được.")
+        form.addRow("Hệ số họng/điểm (auto):", self.spin_he_so_hong)
+
+        # Chiều dài hành lang trên 1 tầng
+        self.spin_hl_dai = QDoubleSpinBox()
+        self.spin_hl_dai.setRange(0.0, 9999.0)
+        self.spin_hl_dai.setDecimals(1)
+        self.spin_hl_dai.setSuffix(" m")
+        self.spin_hl_dai.setValue(0.0)
+        self.spin_hl_dai.setToolTip(
+            "QCVN 10:2025 Bảng H.5 mục 1 + H.2.18. "
+            "Mặc định auto theo công năng (chung cư=D/3, công cộng=D).")
+        form.addRow("Chiều dài hành lang trên 1 tầng:", self.spin_hl_dai)
 
         # Nguồn cấp nước
         self.cbo_nguon_nuoc = QComboBox()
@@ -348,28 +431,32 @@ class TuVanPCCC(QMainWindow):
         # Wire signals — cập nhật state khi user đổi giá trị
         self.cbo_bac_chiu_lua.currentIndexChanged.connect(self._on_cap_nuoc_changed)
         self.cbo_hang_sx.currentIndexChanged.connect(self._on_cap_nuoc_changed)
-        self.spin_he_so_hong.valueChanged.connect(self._on_cap_nuoc_changed)
+        self.cbo_cap_nhc.currentIndexChanged.connect(self._on_cap_nuoc_changed)
+        # spin_he_so_hong: read-only, không cần signal
+        self.spin_hl_dai.editingFinished.connect(self._on_cap_nuoc_changed)
+        self.spin_hl_dai.editingFinished.connect(self._on_hl_edited_by_user)
         self.cbo_nguon_nuoc.currentIndexChanged.connect(self._on_cap_nuoc_changed)
 
     def _on_cap_nuoc_changed(self):
         """Cập nhật state khi user đổi giá trị trên tab Cấp nước CC."""
         self.bac_chiu_lua = self.cbo_bac_chiu_lua.currentData()
         self.hang_sx = self.cbo_hang_sx.currentData()
-        self.he_so_hong = int(self.spin_he_so_hong.value())
+        self.cap_nhc_kc = self.cbo_cap_nhc.currentData()
+        # he_so_hong read-only, tự sync trong _render_cap_nuoc
+        self.hl_dai = float(self.spin_hl_dai.value())
         self.nguon_nuoc = self.cbo_nguon_nuoc.currentData()
-        # Enable/disable hạng SX theo công năng
+        # Enable/disable hạng SX + cấp NHC theo công năng (SX/kho)
         cn = self._current_cong_nang()
-        if cn and cn["k"] in R.CN_SAN_XUAT_KHO:
-            self.cbo_hang_sx.setEnabled(True)
-        else:
-            self.cbo_hang_sx.setEnabled(False)
+        is_sx = bool(cn and cn["k"] in R.CN_SAN_XUAT_KHO)
+        self.cbo_hang_sx.setEnabled(is_sx)
+        self.cbo_cap_nhc.setEnabled(is_sx)
         # Re-render nếu đã phân tích
         if self.last_result:
             self._render_cap_nuoc()
             self._render_bao_gia()
 
     def _render_cap_nuoc(self):
-        """Hiển thị kết quả tính số họng + cảnh báo."""
+        """Hiển thị kết quả tính số họng + ống trục chính + sprinkler."""
         i = self._get_input()
         cn = self._current_cong_nang()
         if not cn or i["dai"] <= 0 or i["rong"] <= 0:
@@ -378,35 +465,234 @@ class TuVanPCCC(QMainWindow):
             return
 
         floors = max(1, int(i["tang"]) + int(i["ham"]))
+        tang_total = int(i["tang"]) + int(i["ham"])
+        hl_dai = float(self.spin_hl_dai.value())
 
-        # Auto-gợi ý hệ số họng/điểm
-        goi_y = R.goi_y_he_so_hong_per_diem(cn["k"], i["dai"], i["rong"])
-        # Nếu user chưa đổi tay (vẫn = 1) thì áp gợi ý
-        if self.he_so_hong == 1 and goi_y["he_so"] != 1:
-            self.spin_he_so_hong.blockSignals(True)
-            self.spin_he_so_hong.setValue(goi_y["he_so"])
-            self.spin_he_so_hong.blockSignals(False)
-            self.he_so_hong = goi_y["he_so"]
+        # Auto-gợi ý hệ số họng/điểm theo QCVN 10:2025 Bảng H.5/H.6
+        goi_y = R.goi_y_he_so_hong_per_diem(
+            cn["k"], i["dai"], i["rong"],
+            cao_pccc=float(i["cao"]),
+            tang_total=tang_total,
+            nguoi=int(i.get("nguoi") or 0),
+            hanh_lang_dai=hl_dai,
+            bac_chiu_lua=getattr(self, "bac_chiu_lua", "II"),
+            hang_nguy_hiem=getattr(self, "hang_sx", "C"),
+            cap_nhc_kc=getattr(self, "cap_nhc_kc", "S0"))
+        # LUÔN sync hệ số họng theo bảng (read-only)
+        self.he_so_hong = int(goi_y["he_so"])
+        self.spin_he_so_hong.blockSignals(True)
+        self.spin_he_so_hong.setValue(self.he_so_hong)
+        self.spin_he_so_hong.blockSignals(False)
+        self.q_per_jet = float(goi_y.get("q_per_jet", 2.5))
 
         # Tính số họng theo hình học
         kq = R.tinh_so_hong_nuoc(i["dai"], i["rong"], floors, self.he_so_hong)
         self.hong_per_floor = kq["n_per_floor"]
 
+        # Chọn DN cuộn vòi
+        dn, dn_basis = R.chon_dn_hong(i["cao"], self.he_so_hong, cn["k"],
+                                      self.q_per_jet)
+
         html = (
+            f"<h4 style='color:#0f766e;margin:0'>💧 HỆ THỐNG HỌNG NƯỚC "
+            f"({goi_y['source']})</h4>"
             f"<b>Kích thước nhà:</b> {i['dai']:.1f}m × {i['rong']:.1f}m × {floors} tầng<br>"
             f"<b>Trường hợp:</b> {kq['case']}<br>"
             f"<b>Công thức:</b> {kq['formula']}<br>"
-            f"<b>Hệ số họng/điểm:</b> {self.he_so_hong} "
-            f"<i>(gợi ý: {goi_y['basis']})</i><br>"
-            f"<b>TỔNG SỐ HỌNG: {kq['total']} bộ</b>"
+            f"<b>Họng/điểm × Lưu lượng tia:</b> "
+            f"<b>{self.he_so_hong} × {self.q_per_jet:g} L/s</b><br>"
+            f"<i>Căn cứ: {goi_y['basis']}</i><br>"
+            f"<b>Đường kính cuộn vòi:</b> {dn.upper()} <i>({dn_basis})</i><br>"
+            f"<b>📊 TỔNG SỐ HỌNG: {kq['total']} bộ</b>"
         )
         warnings_all = list(kq["warnings"]) + list(goi_y["ghi_chu"])
         if warnings_all:
-            html += "<br><br>" + "<br>".join(warnings_all)
+            html += "<br>" + "<br>".join(warnings_all)
+
+        # Phần ống trục chính họng nước
+        has_sprk = False
+        if self.last_result:
+            has_sprk = any(x["nhom"] == "chua_chay" and x["req"]
+                           for x in self.last_result["items"])
+        is_nha_o = (cn["k"] == "chung_cu")
+        kq_ong = R.tinh_chieu_dai_ong_truc_chinh(
+            D=i["dai"], R=i["rong"], cao_pccc=i["cao"], floors=floors,
+            n_hong=kq["total"], he_so_hong_per_diem=self.he_so_hong,
+            is_nha_o=is_nha_o, hanh_lang_dai=hl_dai,
+            has_sprinkler=has_sprk)
+        dn_truc = "DN80" if dn == "dn65" else "DN65"
+        html += (
+            f"<br><br><h4 style='color:#0f766e;margin:0'>"
+            f"🔧 ỐNG TRỤC CHÍNH (QCVN 10:2025 H.2.11 + H.2.16)</h4>"
+            f"<b>Số trục đứng:</b> {kq_ong['n_truc']} "
+            f"({'có dùng họng kép' if kq_ong['cho_phep_hong_kep'] else 'không họng kép'})<br>"
+            f"<b>Chiều cao trục đứng:</b> {kq_ong['H_truc_dung']:.1f}m<br>"
+            f"<b>Mạng vòng:</b> "
+            f"{'CÓ' if kq_ong['can_mach_vong'] else 'KHÔNG cần'}<br>"
+            f"<b>Đường kính ống trục chính:</b> {dn_truc}<br>"
+            f"<b>📐 Chi tiết cách tính:</b><br>"
+            + "<br>".join("&nbsp;&nbsp;" + g for g in kq_ong["ghi_chu"])
+        )
+
+        # Phần sprinkler
+        if has_sprk:
+            sprk = R.tinh_sprinkler(i["dt"], cn["k"], self.rooms)
+            html += (
+                f"<br><br><h4 style='color:#0f766e;margin:0'>"
+                f"💦 HỆ THỐNG SPRINKLER (TCVN 7336)</h4>"
+                f"<b>Nhóm nguy cơ:</b> Nhóm {sprk['nhom']} "
+                f"<i>(TCVN 7336 Phụ lục A)</i><br>"
+                f"<b>Khoảng cách tối đa giữa sprk:</b> "
+                f"{3 if sprk['nhom'] in ('4.1','4.2') else 4} m "
+                f"<i>(Bảng 1)</i><br>"
+                f"<b>Cường độ phun:</b> {sprk['cd_phun']} L/s·m²<br>"
+                f"<b>Lưu lượng tính toán:</b> {sprk['luu_luong']} L/s<br>"
+                f"<b>Thời gian phun:</b> {sprk['t_phun']} phút<br>"
+                f"<b>📊 TỔNG SỐ ĐẦU PHUN:</b> {sprk['cong_thuc']}<br>"
+                f"<b>💧 Bể nước:</b> {sprk['the_tich_be']} m³"
+            )
+            if i["dai"] > 0 and i["cao"] > 0:
+                kq_sprk = R.tinh_chieu_dai_ong_sprinkler(
+                    n_sprk_total=sprk["n_sprk"],
+                    dt_per_sprk=sprk["dt_per_sprk"],
+                    D=i["dai"], R=i["rong"],
+                    cao_pccc=i["cao"], floors=floors,
+                    sprk_per_nhanh=5)
+                # Gộp DN nhánh + phân phối
+                from collections import defaultdict as _dd
+                _all = _dd(float)
+                for dn_c, L in kq_sprk['L_per_dn'].items():
+                    _all[dn_c] += L
+                for dn_c, L in kq_sprk.get('L_pp_per_dn', {}).items():
+                    _all[dn_c] += L
+                pipe_summary = ", ".join(
+                    f"{dn_c.upper()}={_all[dn_c]:.0f}m"
+                    for dn_c in sorted(_all.keys(),
+                                       key=lambda x: int(x.replace("dn", ""))))
+                html += (
+                    f"<br><br><h4 style='color:#0f766e;margin:0'>"
+                    f"🔧 ỐNG SPRINKLER (TCVN 7336 Bảng B.3)</h4>"
+                    f"<b>Trục đứng:</b> {kq_sprk['dn_truc_label']} × "
+                    f"{kq_sprk['L_truc']:.0f}m<br>"
+                    f"<b>Ống nhánh + phân phối (taper):</b> {pipe_summary}<br>"
+                    f"<b>Số cụm van điều khiển:</b> {kq_sprk['n_zone']} cụm<br>"
+                    f"<b>📐 Chi tiết cách tính:</b><br>"
+                    + "<br>".join("&nbsp;&nbsp;" + g
+                                  for g in kq_sprk["ghi_chu"])
+                )
+
+        # ---- Block tinh cum bom (TCVN 7336 B.3.8 + B.3.9) ----
+        try:
+            i_for_bom = dict(i)
+            i_for_bom["cong_nang_k"] = cn["k"]
+            i_for_bom["he_so_hong_per_diem"] = self.he_so_hong
+            i_for_bom["q_per_jet"] = self.q_per_jet
+            i_for_bom["hong_per_floor"] = self.hong_per_floor
+            i_for_bom["hanh_lang_dai"] = hl_dai
+            items_for_bom = (self.last_result["items"]
+                             if self.last_result else [])
+            slots_all = R.build_slots(items_for_bom, i_for_bom)
+        except Exception:
+            slots_all = []
+        bom_slot = next(
+            (s for s in slots_all
+             if s.get("loai") == "cum_bom" and "bom_info" in s),
+            None)
+        if bom_slot:
+            b = bom_slot["bom_info"]
+            html += (
+                "<br><br><h4 style='color:#7c2d12;margin:0'>"
+                "⚙ CỤM BƠM CHỮA CHÁY (TCVN 7336 B.3.8 + B.3.9)</h4>"
+                + "<b>Khuyến nghị: Q ≥ " + str(b["Q_ls"])
+                + " L/s (" + str(b["Q_m3h"])
+                + " m³/h), H ≥ " + str(b["H_m"]) + " m</b><br>"
+                + b["thuyet_minh"]
+                + "<br><i>Sales chọn model thực tế (Pentax/Ebara/Wilo/...) "
+                "qua nút <b>'Đổi model'</b> ở tab Báo giá với Q-H ≥ giá trị trên.</i>"
+            )
 
         self.lbl_cap_nuoc_result.setText(html)
 
     # ---------------- HELPERS ----------------
+    def _on_input_changed(self):
+        """Auto re-run sau khi user đổi input — chỉ khi đã phân tích lần đầu."""
+        if self.last_result:
+            self._on_run()
+
+    def _auto_fill_dt(self):
+        """Tự fill DT sàn = D × R × số tầng nếu user chưa sửa tay."""
+        if self._dt_user_modified:
+            return
+        D = float(self.spin_dai.value())
+        R_ = float(self.spin_rong.value())
+        floors = int(self.spin_tang.value()) + int(self.spin_ham.value())
+        if D > 0 and R_ > 0 and floors > 0:
+            dt = D * R_ * floors
+            self.spin_dt.blockSignals(True)
+            self.spin_dt.setValue(dt)
+            self.spin_dt.blockSignals(False)
+
+    def _on_dt_edited_by_user(self):
+        self._dt_user_modified = True
+
+    def _auto_fill_hl_dai(self):
+        """Tự fill chiều dài hành lang theo công năng (auto_hl_dai)."""
+        if self._hl_user_modified:
+            return
+        cn = self._current_cong_nang()
+        if cn is None:
+            return
+        D = float(self.spin_dai.value())
+        if D <= 0:
+            return
+        so_phong = int(self.spin_so_phong.value() or 0)
+        floors = int(self.spin_tang.value()) + int(self.spin_ham.value())
+        hl_new = R.auto_hl_dai(cn["k"], D, so_phong, max(1, floors))
+        if hasattr(self, "spin_hl_dai"):
+            self.spin_hl_dai.blockSignals(True)
+            self.spin_hl_dai.setValue(hl_new)
+            self.spin_hl_dai.blockSignals(False)
+            self.hl_dai = hl_new
+
+    def _on_hl_edited_by_user(self):
+        self._hl_user_modified = True
+
+    def _validate_inputs(self) -> list:
+        """Quét các field bắt buộc. Trả list (widget, label) thiếu."""
+        missing = []
+        cn = self._current_cong_nang()
+        if cn is None:
+            missing.append((self.cbo_cong_nang, "Công năng sử dụng"))
+        if float(self.spin_dai.value()) <= 0:
+            missing.append((self.spin_dai, "Chiều dài nhà"))
+        if float(self.spin_rong.value()) <= 0:
+            missing.append((self.spin_rong, "Chiều rộng nhà"))
+        if float(self.spin_cao.value()) <= 0:
+            missing.append((self.spin_cao, "Chiều cao PCCC"))
+        if int(self.spin_tang.value()) < 1:
+            missing.append((self.spin_tang, "Số tầng nổi"))
+        if cn:
+            if cn.get("nguoi") and int(self.spin_nguoi.value()) < 1:
+                missing.append((self.spin_nguoi, "Số người / chỗ ngồi"))
+            if cn.get("chau") and int(self.spin_chau.value()) < 1:
+                missing.append((self.spin_chau, "Số cháu"))
+        return missing
+
+    def _highlight_missing(self, missing):
+        """Tô border đỏ các widget thiếu, reset các widget khác."""
+        err_style = "border: 2px solid #ef4444; background-color: #fef2f2;"
+        all_widgets = (
+            self.cbo_cong_nang, self.spin_dai, self.spin_rong, self.spin_cao,
+            self.spin_tang, self.spin_ham, self.spin_dt, self.spin_so_phong,
+            self.spin_nguoi, self.spin_chau,
+        )
+        missing_widgets = {w for w, _ in missing}
+        for w in all_widgets:
+            if w in missing_widgets:
+                w.setStyleSheet(err_style)
+            else:
+                w.setStyleSheet("")
+
     def _current_cong_nang(self) -> dict:
         k = self.cbo_cong_nang.currentData()
         return R.get_cong_nang(k)
@@ -425,10 +711,15 @@ class TuVanPCCC(QMainWindow):
             # so_cau_thang lấy từ tab Thoát nạn (mặc định 1 nếu chưa nhập)
             "so_cau_thang": int(self.tn_cau_thang.value()) or 1,
             # Thông số cấp nước CC (cho build_hong_nuoc_slots)
+            "cong_nang_k": self._current_cong_nang()["k"]
+                if self._current_cong_nang() else "",
             "he_so_hong_per_diem": getattr(self, "he_so_hong", 1),
+            "q_per_jet": getattr(self, "q_per_jet", 2.5),
             "hong_per_floor": getattr(self, "hong_per_floor", 0),
+            "hanh_lang_dai": getattr(self, "hl_dai", 0.0),
             "bac_chiu_lua": getattr(self, "bac_chiu_lua", "II"),
             "hang_sx": getattr(self, "hang_sx", "C"),
+            "cap_nhc_kc": getattr(self, "cap_nhc_kc", "S0"),
             "nguon_nuoc": getattr(self, "nguon_nuoc", "duong_ong"),
             "binhPerFloor": 100,
             "binhReserve": 10,
@@ -495,10 +786,12 @@ class TuVanPCCC(QMainWindow):
         self.lbl_status.setText(
             f"✅ Đã nạp <b>{len(catalog)}</b> sản phẩm từ bảng giá Fsales.")
 
-    def _find_product(self, nhom: str, loai: str = None, group: str = None) -> int:
+    def _find_product(self, nhom: str, loai: str = None, group: str = None,
+                      prefer: list = None) -> int:
         """Tìm SP đầu tiên khớp nhom/loai (+ bg_group nếu có).
-        Trả index trong catalog, hoặc -1 nếu không tìm thấy.
-        KHÔNG fallback sang SP khác loại — báo (THIẾU SP) để sales bổ sung."""
+        prefer: list keyword (lowercase) ưu tiên — SP nào match nhiều keyword
+        nhất trong tên+model sẽ được chọn."""
+        matches = []
         for idx, c in enumerate(self.catalog):
             if c["nhom"] != nhom:
                 continue
@@ -506,8 +799,17 @@ class TuVanPCCC(QMainWindow):
                 continue
             if group is not None and c.get("bg_groups") and group not in c["bg_groups"]:
                 continue
-            return idx
-        return -1
+            matches.append(idx)
+        if not matches:
+            return -1
+        if not prefer:
+            return matches[0]
+        def _score(i):
+            c = self.catalog[i]
+            s = (str(c.get("ten", "")) + " " + str(c.get("model", ""))).lower()
+            return sum(1 for kw in prefer if kw in s)
+        best = max(matches, key=_score)
+        return best if _score(best) > 0 else matches[0]
 
     def _find_by_model(self, model: str) -> int:
         """Tìm SP theo model (normalized). Trả index hoặc -1."""
@@ -569,13 +871,29 @@ class TuVanPCCC(QMainWindow):
 
     # ---------------- ĐỘNG CƠ CHÍNH ----------------
     def _on_run(self):
-        cn = self._current_cong_nang()
-        if cn is None:
-            return
         if not self.catalog:
             QMessageBox.warning(self, "Chưa có bảng giá",
                                 "Bảng giá Fsales rỗng — kiểm tra kết nối DB.")
             return
+
+        # Validation: quét các field bắt buộc
+        missing = self._validate_inputs()
+        self._highlight_missing(missing)
+        if missing:
+            ds = "<br>".join(f"• <b>{lbl}</b>" for _, lbl in missing)
+            QMessageBox.warning(
+                self, "Thiếu thông tin bắt buộc",
+                f"Vui lòng nhập đầy đủ các trường sau:<br><br>{ds}<br><br>"
+                f"<i>Các field thiếu đã được tô đỏ ở cột trái.</i>")
+            return
+
+        cn = self._current_cong_nang()
+        if cn is None:
+            return
+
+        # Safety net: auto-fill DT + HL nếu vẫn = 0
+        self._auto_fill_dt()
+        self._auto_fill_hl_dai()
 
         i = self._get_input()
         # Nếu chưa có phòng nhưng có "Số phòng" → tự sinh
@@ -602,7 +920,9 @@ class TuVanPCCC(QMainWindow):
                 "(> 0 m) ở cột trái để tính số lượng cuộn vòi & bố trí họng nước.")
             return
 
-        self.last_result = res
+        self.last_result_raw = res
+        self._apply_optional_wants_to_last_result()
+        res = self.last_result
         # Tự chọn nhóm hệ báo cháy theo bcState:
         # doc_lap -> cục bộ; tu_dong -> giữ nguyên user-selected (mặc định không dây)
         if res["bcState"] == "doc_lap":
@@ -620,34 +940,95 @@ class TuVanPCCC(QMainWindow):
             self._render_cap_nuoc()
         self._render_bao_gia()
         self._render_tu_van()
+        if hasattr(self, "lbl_phan_loai_nd105"):
+            self._render_ho_so_phap_ly()
         self.tabs.setCurrentIndex(0)
 
     def _apply_thoat_nan_defaults(self, i: dict):
         """Áp giá trị mặc định cho các field thoát nạn nếu còn = 0.
-        Quy ước: lối ra ngoài=2, cầu thang=1, dài hành lang=1m,
-                 cửa phòng ra hành lang = số gian phòng,
-                 chiếu nghỉ cầu thang = số tầng (nổi + hầm)."""
+        Quy ước:
+          - lối ra ngoài = 2, cầu thang = 1
+          - cửa phòng ra hành lang = số gian phòng
+          - chiếu nghỉ cầu thang = số tầng (nổi + hầm)
+          - tổng chiều dài hành lang = HL_trên_1_tầng × số_tầng (đồng bộ với
+            tab Cấp nước CC, LUÔN sync chứ không chỉ khi = 0)
+          - chiều rộng hành lang = 3m
+        """
         so_phong = int(self.spin_so_phong.value() or 0)
         so_tang = int(i.get("tang", 0)) + int(i.get("ham", 0))
+        floors = max(1, so_tang)
+        hl_per_floor = float(self.spin_hl_dai.value()) \
+            if hasattr(self, "spin_hl_dai") else 0.0
+        hl_total = hl_per_floor * floors if hl_per_floor > 0 else 1.0
 
         defaults = [
             (self.tn_loi_ra_ngoai, 2),
             (self.tn_cau_thang, 1),
             (self.tn_loi_ra_phong, so_phong if so_phong > 0 else 1),
             (self.tn_chieu_nghi, so_tang if so_tang > 0 else 1),
-            (self.tn_dai_hl, 1.0),
+            (self.tn_dai_hl, hl_total),
+            (self.tn_rong_hl, 3.0),
         ]
         for w, default_v in defaults:
             if w.value() == 0:
                 w.blockSignals(True)
                 w.setValue(default_v)
                 w.blockSignals(False)
+        # LUÔN sync tn_dai_hl = HL_per_floor × floors (kể cả khi != 0)
+        if hl_per_floor > 0:
+            self.tn_dai_hl.blockSignals(True)
+            self.tn_dai_hl.setValue(hl_total)
+            self.tn_dai_hl.blockSignals(False)
         # Trigger _on_tn_changed 1 lần để cập nhật thoat_nan dict + lbl_tn_result
         self._on_tn_changed()
 
     # ---------------- RENDER TAB 1: THIẾT BỊ ----------------
+    def _on_thiet_bi_clicked(self, row: int, col: int):
+        """Click cột "Yêu cầu" (col 2) → toggle Muốn trang bị cho mục không bắt buộc."""
+        if col != 2 or not self.last_result_raw:
+            return
+        items = self.last_result_raw["items"]
+        if row < 0 or row >= len(items):
+            return
+        x = items[row]
+        if x["req"] or x.get("mode") == "doc_lap":
+            return  # mục bắt buộc — không toggle được
+        nhom = x.get("nhom")
+        if not nhom:
+            return
+        if nhom in self.optional_wants:
+            self.optional_wants.discard(nhom)
+        else:
+            self.optional_wants.add(nhom)
+        # Re-apply + re-render
+        self._apply_optional_wants_to_last_result()
+        self._render_thiet_bi()
+        if hasattr(self, "lbl_cap_nuoc_result"):
+            self._render_cap_nuoc()
+        self._render_bao_gia()
+        self._render_tu_van()
+        # Force Qt repaint ngay lập tức (tránh chờ event loop)
+        self.tb_thiet_bi.viewport().update()
+        if hasattr(self, "tb_bg"):
+            self.tb_bg.viewport().update()
+
+    def _apply_optional_wants_to_last_result(self):
+        """Copy raw → last_result và set req=True cho các nhóm user "muốn trang bị"."""
+        if not self.last_result_raw:
+            return
+        import copy
+        new_res = copy.deepcopy(self.last_result_raw)
+        for x in new_res["items"]:
+            if (not x["req"] and x.get("mode") != "doc_lap"
+                    and x.get("nhom") in self.optional_wants):
+                x["req"] = True
+                x["dk"] = "[Muốn trang bị] " + x.get("dk", "")
+        self.last_result = new_res
+
     def _render_thiet_bi(self):
-        res = self.last_result
+        # Render từ bản RAW để cột Yêu cầu phản ánh đúng 'bắt buộc theo
+        # quy định' vs 'muốn trang bị' thay vì gộp lại sau khi apply
+        res = self.last_result_raw or self.last_result
         cn = res["cn"]
         i = res["i"]
         items = res["items"]
@@ -666,18 +1047,36 @@ class TuVanPCCC(QMainWindow):
             f = it_ht.font(); f.setBold(True); it_ht.setFont(f)
             self.tb_thiet_bi.setItem(n, 1, it_ht)
 
+            # Cột Yêu cầu: 4 trạng thái — Bắt buộc / Khuyến nghị / Muốn / Không
+            from PyQt6.QtGui import QColor, QBrush
+            want = x["nhom"] in self.optional_wants and not x["req"]
             if x.get("mode") == "doc_lap":
                 yc = "BẮT BUỘC · tối thiểu: độc lập"
-                color = "#a16207"
+                bg = QColor("#a16207")
+                fg = QColor("white")
             elif x["req"]:
                 yc = "BẮT BUỘC"
-                color = "#b91c1c"
+                bg = QColor("#b91c1c")
+                fg = QColor("white")
+            elif x.get("mode") == "khuyen_nghi" and want:
+                yc = "✓ Muốn trang bị (khuyến nghị · click để bỏ)"
+                bg = QColor("#a7f3d0")
+                fg = QColor("#065f46")
+            elif x.get("mode") == "khuyen_nghi":
+                yc = "⚠ KHUYẾN NGHỊ (click để chọn trang bị)"
+                bg = QColor("#fde68a")    # vàng nhạt
+                fg = QColor("#78350f")    # nâu đậm contrast
+            elif want:
+                yc = "✓ Muốn trang bị (click để bỏ)"
+                bg = QColor("#a7f3d0")
+                fg = QColor("#065f46")
             else:
-                yc = "Không bắt buộc"
-                color = "#64748b"
+                yc = "Không bắt buộc (click để chọn trang bị)"
+                bg = QColor("#e5e7eb")
+                fg = QColor("#374151")
             it_yc = QTableWidgetItem(yc)
-            it_yc.setForeground(Qt.GlobalColor.white)
-            it_yc.setBackground(Qt.GlobalColor.darkRed if x["req"] else Qt.GlobalColor.gray)
+            it_yc.setForeground(QBrush(fg))
+            it_yc.setBackground(QBrush(bg))
             self.tb_thiet_bi.setItem(n, 2, it_yc)
             self.tb_thiet_bi.setItem(n, 3, QTableWidgetItem(x["dk"]))
             self.tb_thiet_bi.setItem(n, 4, QTableWidgetItem(x["can"]))
@@ -689,6 +1088,13 @@ class TuVanPCCC(QMainWindow):
                 "ℹ️ <b>Về báo cháy:</b> công trình quy mô nhỏ — QCVN 10 cho phép dùng "
                 "<b>thiết bị báo cháy độc lập</b> (gọn, chi phí thấp) thay cho hệ thống tự động. "
                 "Khách hàng vẫn có thể chọn lắp hệ thống tự động nếu muốn mức bảo vệ cao hơn.")
+        elif res["bcState"] == "khuyen_nghi":
+            notes.append(
+                "⚠️ <b>Khuyến nghị:</b> công trình DƯỚI NGƯỠNG bắt buộc báo cháy tự động "
+                "nhưng thuộc diện 'cho phép trang bị thiết bị báo cháy độc lập' theo "
+                "chú thích Bảng A.1 QCVN 10:2025. <b>Không bắt buộc</b> theo quy định, "
+                "nhưng nên tư vấn KH lắp <b>thiết bị báo cháy độc lập</b> tăng an toàn — "
+                "đặc biệt với công trình có trẻ em / người cao tuổi / người bệnh.")
         if res["bcState"] != "khong":
             notes.append(
                 "ℹ️ <b>Truyền tin báo cháy</b> bắt buộc với mọi cơ sở thuộc diện quản lý PCCC "
@@ -717,8 +1123,17 @@ class TuVanPCCC(QMainWindow):
                 QMessageBox.information(self, "Thiếu dữ liệu",
                                         "Hãy nhập 'Số phòng' > 0 ở cột trái.")
             return
+        # DT phòng = (DT_tổng − DT hành lang toàn nhà) / số phòng
+        # DT hành lang = HL_dài/tầng × HL_rộng × số_tầng
+        floors = max(1, int(self.spin_tang.value()) + int(self.spin_ham.value()))
+        hl_dai_per_floor = float(self.spin_hl_dai.value()) \
+            if hasattr(self, "spin_hl_dai") else 0.0
+        hl_rong = float(self.tn_rong_hl.value()) \
+            if hasattr(self, "tn_rong_hl") else 3.0
+        dt_hl_total = hl_dai_per_floor * hl_rong * floors
+        dt_phong_total = max(0.0, dt - dt_hl_total)
         fk = self._default_room_func_current()
-        area = round(dt / n, 1) if n else 0
+        area = round(dt_phong_total / n, 1) if n else 0
         loai = R.def_loai_dau_bao(fk)
         self.rooms = [
             {"ten": f"P{j+1}", "func": fk, "dt": area, "loai": loai}
@@ -919,6 +1334,23 @@ class TuVanPCCC(QMainWindow):
         for s in slots:
             group = self.bg_group if self._need_group(s["nhom"]) else None
 
+            # Slot CÓ GIÁ MẶC ĐỊNH (fixed=True) — KHÔNG tra catalog
+            if s.get("fixed"):
+                rows.append({
+                    "label": s["label"], "nhom": s["nhom"], "loai": s["loai"],
+                    "ci": -1, "sl": s["sl"],
+                    "ten": s.get("fixed_ten", s["label"]),
+                    "model": "(Ước tính)",
+                    "hieu": "",
+                    "dv": s.get("fixed_dv", "Bộ"),
+                    "gia": int(s.get("fixed_gia", 0)),
+                    "vat": 8,
+                    "nhan_cong_unit": 0,
+                    "parent_ht": s.get("parent_ht", ""),
+                    "group": group,
+                })
+                continue
+
             # Đặc biệt: truyền tin pick model theo group (Fcom1 / Fcom2)
             if s["nhom"] == "truyen_tin":
                 tt_model = R.truyen_tin_model_of(self.bg_group)
@@ -926,14 +1358,20 @@ class TuVanPCCC(QMainWindow):
                 if idx < 0:
                     idx = self._find_product("truyen_tin", group=group)
             # Đặc biệt: tủ trung tâm pick model mặc định theo group
-            # (co_day: FCP-4 / khong_day: WCP-1)
             elif s["nhom"] == "bao_chay" and s["loai"] == "trung_tam":
                 tt_model = R.default_trung_tam_model(self.bg_group)
                 idx = self._find_by_model(tt_model) if tt_model else -1
                 if idx < 0:
                     idx = self._find_product(s["nhom"], s["loai"], group=group)
             else:
-                idx = self._find_product(s["nhom"], s["loai"], group=group)
+                # Sprinkler ưu tiên SP K=5.6, 68°C
+                prefer = None
+                if s["nhom"] == "chua_chay" and s["loai"] in (
+                        "sprinkler_up", "sprinkler_down"):
+                    prefer = ["k=5.6", "k 5.6", "k5.6", "k 5,6", "k=5,6",
+                              "5.6", "5,6", "68"]
+                idx = self._find_product(s["nhom"], s["loai"],
+                                         group=group, prefer=prefer)
 
             if idx < 0:
                 # Không có SP phù hợp — vẫn show dòng để sales biết, ghi missing
@@ -1288,6 +1726,7 @@ class TuVanPCCC(QMainWindow):
 
                 self._upd_slot_product(row, ci)
 
+
     def _them_dong_bg(self):
         """Thêm 1 dòng trống — sales tự pick model. Đặt vào nhóm 'Khác/Tùy chọn'."""
         if not self.catalog:
@@ -1384,10 +1823,9 @@ class TuVanPCCC(QMainWindow):
         for x in req:
             lines.append(
                 f"<h4>{x['ht']}</h4>"
-                f"<p>Theo {x['can']}, công trình của Quý khách thuộc diện "
-                f"<b>phải trang bị {x['ht'].lower()}</b> (điều kiện: {x['dk']}). "
-                f"Đây là yêu cầu bắt buộc; trang bị đầy đủ giúp công trình đủ điều kiện "
-                f"nghiệm thu, thẩm duyệt PCCC và bảo đảm an toàn cho người, tài sản.</p>"
+                f"<p>Theo {x.get('can', x.get('dk', ''))}, công trình cần "
+                f"<b>trang bị {x['ht'].lower()}</b> (điều kiện: {x['dk']}). "
+                f"Đây là yêu cầu bắt buộc.</p>"
             )
         lines.append(
             f"<h3>Kết luận</h3>"
@@ -1400,7 +1838,6 @@ class TuVanPCCC(QMainWindow):
         )
         self.txt_tu_van.setHtml("".join(lines))
 
-    # ---------------- XUẤT EXCEL ----------------
     def _xuat_excel(self):
         if not self.bg_rows:
             QMessageBox.information(self, "Chưa có dữ liệu",
@@ -1409,12 +1846,10 @@ class TuVanPCCC(QMainWindow):
         ten_kh = self.kh_ten.text().strip() or "Khach hang"
         vv = self.kh_vv.text().strip() or "He thong PCCC"
         default_name = goi_y_ten_file(ten_kh, vv)
-
         path, _ = QFileDialog.getSaveFileName(
             self, "Lưu báo giá Excel", default_name, "Excel Files (*.xlsx)")
         if not path:
             return
-
         ttkh = {
             "ten": self.kh_ten.text().strip(),
             "dia_chi": self.kh_dc.text().strip(),
@@ -1431,6 +1866,136 @@ class TuVanPCCC(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Lỗi xuất Excel", str(e))
 
+    def _build_tab_ho_so_phap_ly(self):
+        tab = QWidget()
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        outer.addWidget(scroll)
+        inner = QWidget()
+        scroll.setWidget(inner)
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(10, 10, 10, 10)
+
+        gb1 = QGroupBox("Phân loại theo NĐ 105/2025/NĐ-CP")
+        l1 = QVBoxLayout(gb1)
+        self.lbl_phan_loai_nd105 = QLabel("Bấm 'Phân tích' để xem phân loại.")
+        self.lbl_phan_loai_nd105.setWordWrap(True)
+        self.lbl_phan_loai_nd105.setTextFormat(Qt.TextFormat.RichText)
+        self.lbl_phan_loai_nd105.setOpenExternalLinks(True)
+        l1.addWidget(self.lbl_phan_loai_nd105)
+        v.addWidget(gb1)
+
+        gb2 = QGroupBox("Danh sách hồ sơ PCCC (14 mục theo Điều 4 NĐ 105)")
+        l2 = QVBoxLayout(gb2)
+        self.lbl_ds_ho_so = QLabel("")
+        self.lbl_ds_ho_so.setWordWrap(True)
+        self.lbl_ds_ho_so.setTextFormat(Qt.TextFormat.RichText)
+        self.lbl_ds_ho_so.setOpenExternalLinks(True)
+        l2.addWidget(self.lbl_ds_ho_so)
+        v.addWidget(gb2)
+
+        gb3 = QGroupBox("Lưu ý quan trọng")
+        l3 = QVBoxLayout(gb3)
+        lbl3 = QLabel(
+            "<ul>"
+            "<li>Hồ sơ phải lập khi đưa công trình vào hoạt động và lưu giữ suốt vòng đời.</li>"
+            "<li>Báo cáo định kỳ 2 lần/năm (trước 15/6 và 15/12).</li>"
+            "<li>Sổ theo dõi lưu tối thiểu 5 năm.</li>"
+            "<li>Cơ quan kiểm tra định kỳ: Công an PCCC cấp huyện/tỉnh tuỳ theo phân loại.</li>"
+            "<li>Cơ sở thuộc Phụ lục II Nhóm 1: bắt buộc mua bảo hiểm cháy nổ.</li>"
+            "</ul>")
+        lbl3.setWordWrap(True)
+        lbl3.setTextFormat(Qt.TextFormat.RichText)
+        l3.addWidget(lbl3)
+        v.addWidget(gb3)
+
+        v.addStretch()
+        self.tabs.addTab(tab, "⑦ Hồ sơ pháp lý")
+
+    def _render_ho_so_phap_ly(self):
+        if not self.last_result:
+            return
+        res = self.last_result
+        cn = res["cn"]
+        i = res["i"]
+        pl = R.tra_phu_luc_nd105(cn["k"], i)
+        self._render_ho_so_phan_loai(cn, i, pl)
+        self._render_ho_so_danh_sach(pl)
+
+    def _render_ho_so_phan_loai(self, cn, i, pl):
+        pl1_status = "THUỘC" if pl["thuoc_pl1"] else "Không thuộc"
+        if pl["thuoc_pl2"]:
+            pl2_status = "THUỘC NHÓM " + str(pl["nhom_pl2"])
+        else:
+            pl2_status = "Không thuộc"
+        bh_txt = "CÓ (bắt buộc)" if pl["bao_hiem_chay_no_bat_buoc"] else "Không"
+        parts = []
+        parts.append("<b>Công trình:</b> " + cn["t"] + "<br>")
+        parts.append("DT " + str(i["dt"]) + " m², " + str(i["tang"])
+                     + " tầng nổi, cao " + str(i["cao"]) + " m<br><br>")
+        parts.append("<b>Phụ lục I:</b> " + pl1_status + "<br>")
+        parts.append("&nbsp;&nbsp;Mục " + str(pl["pl1_muc"]) + ": "
+                     + pl["pl1_ten_muc"] + "<br>")
+        parts.append("&nbsp;&nbsp;Lý do: " + pl["pl1_ly_do"] + "<br><br>")
+        parts.append("<b>Phụ lục II:</b> " + pl2_status + "<br>")
+        parts.append("&nbsp;&nbsp;Mục " + str(pl["pl2_muc"]) + ": "
+                     + pl["pl2_ten_muc"] + "<br>")
+        parts.append("&nbsp;&nbsp;Lý do: " + pl["pl2_ly_do"] + "<br><br>")
+        parts.append("<b>Tự kiểm tra:</b> " + pl["tan_suat_tu_kiem_tra"] + "<br>")
+        parts.append("<b>Cơ quan kiểm tra:</b> "
+                     + pl["tan_suat_co_quan_kiem_tra"] + "<br>")
+        parts.append("<b>Báo cáo định kỳ:</b> trước 15/6 và 15/12 hằng năm<br>")
+        parts.append("<b>Cơ quan quản lý:</b> " + pl["co_quan_kiem_tra"] + "<br>")
+        parts.append("<b>Bảo hiểm cháy nổ:</b> " + bh_txt + "<br><br>")
+        parts.append("<i>Căn cứ: " + pl["nguon"] + "</i>")
+        self.lbl_phan_loai_nd105.setText("".join(parts))
+
+    def _render_ho_so_danh_sach(self, pl):
+        ds = R.danh_sach_ho_so_pccc(pl)
+        links = R.links_mau_pccc()
+        out = []
+        out.append("<table cellpadding='4' style='font-size:13px;'>")
+        out.append(
+            "<tr style='background:#fde68a;font-weight:bold;'>"
+            "<td>#</td><td>Tài liệu</td><td>Mẫu</td>"
+            "<td align='center'>Bắt buộc</td>"
+            "<td align='center'>Lưu 5 năm</td>"
+            "<td>Ghi chú</td></tr>")
+        for x in ds:
+            if x["bat_buoc"]:
+                bg = "#fef3c7"
+                bb_icon = "<b>✓</b>"
+            else:
+                bg = "#ffffff"
+                bb_icon = ""
+            luu_icon = "✓" if x["luu_5_nam"] else ""
+            mau = x["mau"] or "-"
+            if mau != "-" and mau in links:
+                mau = "<a href='" + links[mau] + "'>" + mau + "</a>"
+            row = (
+                "<tr style='background:" + bg + ";'>"
+                "<td align='center'>" + str(x["so"]) + "</td>"
+                "<td>" + x["ten"] + "</td>"
+                "<td align='center'>" + mau + "</td>"
+                "<td align='center'>" + bb_icon + "</td>"
+                "<td align='center'>" + luu_icon + "</td>"
+                "<td style='font-size:11px;color:#555;'>"
+                + x["ghi_chu"] + "</td>"
+                "</tr>")
+            out.append(row)
+        out.append("</table>")
+        out.append(
+            "<br><b>Link tải:</b> "
+            "<a href='" + links["ND105_TOAN_VAN"]
+            + "'>NĐ 105/2025/NĐ-CP toàn văn</a>"
+            " &nbsp;·&nbsp; "
+            "<a href='" + links["PC01"]
+            + "'>Mẫu PC01–PC06 (TVPL)</a>")
+        self.lbl_ds_ho_so.setText("".join(out))
+
     def _in_pdf(self):
         """In bảng báo giá ra máy in / lưu PDF qua hộp thoại in của Qt."""
         try:
@@ -1440,7 +2005,6 @@ class TuVanPCCC(QMainWindow):
             QMessageBox.warning(self, "Thiếu module",
                                 "Cần cài PyQt6-Qt6 để in/lưu PDF.")
             return
-
         doc = QTextDocument()
         doc.setHtml(self.txt_tu_van.toHtml())
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
@@ -1449,9 +2013,6 @@ class TuVanPCCC(QMainWindow):
             doc.print(printer)
 
 
-# =====================================================================
-# CHẠY ĐỘC LẬP (debug)
-# =====================================================================
 if __name__ == "__main__":
     import sys
     app = QApplication(sys.argv)
