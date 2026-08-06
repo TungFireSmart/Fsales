@@ -2707,9 +2707,9 @@ def _load_bom_catalog():
     global _BOM_CATALOG_CACHE
     if _BOM_CATALOG_CACHE is not None:
         return _BOM_CATALOG_CACHE
-    import json, os
+    import json, os, sys
     try:
-        here = os.path.dirname(os.path.abspath(__file__))
+        here = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     except NameError:
         here = os.getcwd()
     p = os.path.join(here, "bom_catalog.json")
