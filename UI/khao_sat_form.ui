@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>KhaoSatForm</class>
+ <widget class="QWidget" name="KhaoSatForm">
+  <property name="geometry">
+   <rect><x>0</x><y>0</y><width>1100</width><height>2200</height></rect>
+  </property>
+  <property name="windowTitle">
+   <string>Khảo sát hiện trường</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">
+QLineEdit, QComboBox, QDateEdit, QSpinBox, QDoubleSpinBox {
+    min-height: 36px;
+    padding-left: 10px;
+    font-size: 13px;
+}
+QTextEdit {
+    padding: 8px;
+    font-size: 13px;
+}
+QCheckBox {
+    min-height: 32px;
+    spacing: 8px;
+    font-size: 13px;
+}
+QGroupBox {
+    font-weight: bold;
+    font-size: 14px;
+    margin-top: 14px;
+    padding-top: 20px;
+}
+QPushButton {
+    min-height: 36px;
+    padding: 6px 14px;
+    font-size: 13px;
+}
+QLabel { font-size: 13px; }
+   </string>
+  </property>
+  <layout class="QVBoxLayout" name="rootLayout">
+   <property name="leftMargin"><number>12</number></property>
+   <property name="topMargin"><number>12</number></property>
+   <property name="rightMargin"><number>12</number></property>
+   <property name="bottomMargin"><number>12</number></property>
+   <property name="spacing"><number>10</number></property>
+
+   <!-- ============= GROUP A: Thông tin chung ============= -->
+   <item>
+    <widget class="QGroupBox" name="gb_A">
+     <property name="title"><string>A. Thông tin chung công trình</string></property>
+     <layout class="QFormLayout" name="form_A">
+      <property name="verticalSpacing"><number>10</number></property>
+      <item row="0" column="0"><widget class="QLabel" name="lbl_ten_ct"><property name="text"><string>Tên công trình:</string></property></widget></item>
+      <item row="0" column="1"><widget class="QLineEdit" name="ks_ten_cong_trinh"/></item>
+      <item row="1" column="0"><widget class="QLabel" name="lbl_dia_chi"><property name="text"><string>Địa chỉ:</string></property></widget></item>
+      <item row="1" column="1"><widget class="QLineEdit" name="ks_dia_chi"/></item>
+      <item row="2" column="0"><widget class="QLabel" name="lbl_so_huu"><property name="text"><string>Hình thức sở hữu:</string></property></widget></item>
+      <item row="2" column="1"><widget class="QComboBox" name="ks_hinh_thuc_so_huu"/></item>
+      <item row="3" column="0"><widget class="QLabel" name="lbl_trang_thai"><property name="text"><string>Trạng thái:</string></property></widget></item>
+      <item row="3" column="1"><widget class="QComboBox" name="ks_trang_thai"/></item>
+      <item row="4" column="1">
+       <widget class="QCheckBox" name="ks_ct_doc_lap">
+        <property name="text"><string>Công trình ĐỘC LẬP (bỏ chọn = một phần của công trình lớn)</string></property>
+        <property name="checked"><bool>true</bool></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <!-- ============= GROUP B: Quy mô + kỹ thuật ============= -->
+   <item>
+    <widget class="QGroupBox" name="gb_B">
+     <property name="title"><string>B. Quy mô + kỹ thuật</string></property>
+     <layout class="QFormLayout" name="form_B">
+      <property name="verticalSpacing"><number>10</number></property>
+      <item row="0" column="0"><widget class="QLabel" name="lbl_bac_chiu_lua"><property name="text"><string>Bậc chịu lửa:</string></property></widget></item>
+      <item row="0" column="1"><widget class="QComboBox" name="ks_bac_chiu_lua"/></item>
+      <item row="1" column="0"><widget class="QLabel" name="lbl_cap_nhc"><property name="text"><string>Cấp NHC kết cấu:</string></property></widget></item>
+      <item row="1" column="1"><widget class="QComboBox" name="ks_cap_nhc"/></item>
+      <item row="2" column="0"><widget class="QLabel" name="lbl_hang_nh"><property name="text"><string>Hạng nguy hiểm (SX/kho):</string></property></widget></item>
+      <item row="2" column="1"><widget class="QComboBox" name="ks_hang_nguy_hiem"/></item>
+      <item row="3" column="0"><widget class="QLabel" name="lbl_nguoi"><property name="text"><string>Số người dự kiến:</string></property></widget></item>
+      <item row="3" column="1"><widget class="QSpinBox" name="ks_so_nguoi_du_kien"><property name="maximum"><number>999999</number></property></widget></item>
+      <item row="4" column="0"><widget class="QLabel" name="lbl_kc"><property name="text"><string>KC tới CT kế bên:</string></property></widget></item>
+      <item row="4" column="1"><widget class="QDoubleSpinBox" name="ks_kc_ct_ke_ben"><property name="maximum"><double>9999.0</double></property><property name="suffix"><string> m</string></property></widget></item>
+      <item row="5" column="1">
+       <widget class="QCheckBox" name="ks_xe_cc_tiep_can">
+        <property name="text"><string>Đường giao thông xe cứu hỏa tiếp cận được</string></property>
+        <property name="checked"><bool>true</bool></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

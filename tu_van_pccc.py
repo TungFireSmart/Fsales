@@ -66,10 +66,13 @@ def _make_dspin(value=0.0, max_v=9_999_999.0, dec=1) -> QDoubleSpinBox:
 class TuVanPCCC(QMainWindow):
     """Cửa sổ Tư vấn & Báo giá PCCC."""
 
-    def __init__(self, user: str = "", user_phone: str = ""):
+    def __init__(self, user: str = "", user_phone: str = "",
+                 lead_id: int = None, ttkh_initial: dict = None):
         super().__init__()
         self.user = user or "Phí Ngọc Tùng"
         self.user_phone = user_phone or "0934630366"
+        self.lead_id = lead_id
+        self._ttkh_initial = ttkh_initial or {}
 
         self.setWindowTitle("Tư vấn & Báo giá PCCC — QCVN 10:2025/BCA")
         self.resize(1380, 820)
@@ -128,13 +131,53 @@ class TuVanPCCC(QMainWindow):
         self.spin_rong = _make_dspin(0)
         u.form_ct.addRow("Chiều dài nhà (m):", self.spin_dai)
         u.form_ct.addRow("Chiều rộng nhà (m):", self.spin_rong)
+        self.kh_cty = u.kh_cty
         self.kh_ten = u.kh_ten
-        self.kh_dc = u.kh_dc
         self.kh_dt = u.kh_dt
+        self.kh_mst = u.kh_mst
+        self.kh_dc = u.kh_dc
         self.kh_vv = u.kh_vv
+        # Auto-fill từ MST/SĐT (giống Fsales lead form)
+        self.kh_mst.textChanged.connect(self._autofill_customer_profile)
+        self.kh_dt.textChanged.connect(self._autofill_customer_profile)
+
+        # Pre-fill từ ttkh_initial (khi mở từ form update lead)
+        if self._ttkh_initial:
+            self._autofill_busy = True  # tránh auto-fill profile chèn ngang
+            try:
+                _t0 = self._ttkh_initial
+                if _t0.get("cty"): self.kh_cty.setText(str(_t0["cty"]))
+                if _t0.get("ten"): self.kh_ten.setText(str(_t0["ten"]))
+                if _t0.get("sdt"): self.kh_dt.setText(str(_t0["sdt"]))
+                if _t0.get("mst"): self.kh_mst.setText(str(_t0["mst"]))
+                if _t0.get("dia_chi"): self.kh_dc.setText(str(_t0["dia_chi"]))
+                if _t0.get("vv"): self.kh_vv.setText(str(_t0["vv"]))
+            finally:
+                self._autofill_busy = False
         self.but_run = u.but_run
         self.lbl_status = u.lbl_status
         self.tabs = u.tabs
+        # Banner Lead info (chèn lên đầu leftLayout)
+        self.lbl_lead_info = QLabel(u.panel_left)
+        self.lbl_lead_info.setWordWrap(True)
+        self.lbl_lead_info.setTextFormat(Qt.TextFormat.RichText)
+        if self.lead_id:
+            self.lbl_lead_info.setText(
+                f"🔗 <b>Lead #{self.lead_id}</b> — chế độ chính thức.<br>"
+                f"<i>Nhấn 'Xuất Excel' sẽ tạo số báo giá + đính kèm vào lead.</i>")
+            self.lbl_lead_info.setStyleSheet(
+                "background:#dcfce7; color:#14532d; "
+                "border:1px solid #86efac; border-radius:6px; padding:8px; "
+                "font-size:12px;")
+        else:
+            self.lbl_lead_info.setText(
+                "⚠ <b>Chưa link lead</b> — chỉ phân tích tham khảo.<br>"
+                "<i>Mở từ form Update lead → 'Hỗ trợ tư vấn' để xuất báo giá chính thức.</i>")
+            self.lbl_lead_info.setStyleSheet(
+                "background:#fef3c7; color:#78350f; "
+                "border:1px solid #fcd34d; border-radius:6px; padding:8px; "
+                "font-size:12px;")
+        u.leftLayout.insertWidget(0, self.lbl_lead_info)
         # Tab 1
         self.lbl_summary = u.lbl_summary
         self.tb_thiet_bi = u.tb_thiet_bi
@@ -181,6 +224,25 @@ class TuVanPCCC(QMainWindow):
 
         # Tab thêm bằng code: "④ Cấp nước CC" — chèn trước Báo giá
         self._build_tab_cap_nuoc()
+        # Tab thêm bằng code: "② Khảo sát hiện trường" — chèn ngay sau "Thiết bị"
+        import khao_sat_helpers as KS
+        KS.build_tab_khao_sat(self)
+        self._ks_helpers = KS
+        # Auto-load khảo sát từ DB nếu có lead_id
+        if self.lead_id:
+            try:
+                ks_data = misc.doc_khao_sat(self.lead_id)
+                if ks_data:
+                    KS.ap_du_lieu(self, ks_data)
+                # Nếu chưa có khảo sát → pre-fill từ ttkh_initial (đỡ phải nhập lại)
+                elif self._ttkh_initial:
+                    self.ks_ten_cong_trinh.setText(
+                        self._ttkh_initial.get("cty")
+                        or self._ttkh_initial.get("ten") or "")
+                    self.ks_dia_chi.setText(
+                        self._ttkh_initial.get("dia_chi") or "")
+            except Exception as e:
+                print("Loi auto-load khao sat:", e)
         # Tab thêm bằng code: "⑦ Hồ sơ pháp lý" — NĐ 105/2025
         self._build_tab_ho_so_phap_ly()
 
@@ -328,6 +390,177 @@ class TuVanPCCC(QMainWindow):
             elif hasattr(w, "currentIndexChanged"):
                 w.currentIndexChanged.connect(lambda _i, w=w: w.setStyleSheet(""))
 
+        # ===== M14 + M15: Ẩn cột trái + toolbar trên + SSOT sync =====
+        self._setup_ssot_m14_m15()
+
+    # =====================================================================
+    # M14 + M15: Ẩn cột trái, banner+nút Phân tích lên toolbar,
+    # sync 1 chiều ks_* (Khảo sát visible) → widget cũ (hidden)
+    # =====================================================================
+    def _setup_ssot_m14_m15(self):
+        from PyQt6.QtCore import Qt, QSize
+        from PyQt6.QtWidgets import QToolBar
+
+        u = self.uic
+        # 1. Ẩn cột trái
+        u.panel_left.hide()
+
+        # 2. Toolbar trên cùng (banner + nút Phân tích + status)
+        toolbar = QToolBar("Tu van PCCC")
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setIconSize(QSize(0, 0))
+        toolbar.setStyleSheet(
+            "QToolBar { background:#f1f5f9; border-bottom:1px solid #cbd5e1; "
+            "padding:6px; spacing:10px; }")
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+
+        # Banner Lead
+        self._toolbar_lead = QLabel()
+        self._toolbar_lead.setTextFormat(Qt.TextFormat.RichText)
+        self._toolbar_lead.setMinimumWidth(360)
+        if self.lead_id:
+            self._toolbar_lead.setText(
+                f"🔗 <b>Lead #{self.lead_id}</b> — chế độ chính thức")
+            self._toolbar_lead.setStyleSheet(
+                "background:#dcfce7;color:#14532d;"
+                "border:1px solid #86efac;border-radius:6px;"
+                "padding:6px 12px;font-size:12px;")
+        else:
+            self._toolbar_lead.setText(
+                "⚠ <b>Chưa link lead</b> — chỉ phân tích tham khảo")
+            self._toolbar_lead.setStyleSheet(
+                "background:#fef3c7;color:#78350f;"
+                "border:1px solid #fcd34d;border-radius:6px;"
+                "padding:6px 12px;font-size:12px;")
+        toolbar.addWidget(self._toolbar_lead)
+
+        # Nút Phân tích
+        self._toolbar_but_run = QPushButton("⚡ Phân tích & lập báo giá")
+        self._toolbar_but_run.setMinimumHeight(36)
+        self._toolbar_but_run.setMinimumWidth(280)
+        self._toolbar_but_run.setStyleSheet(
+            "QPushButton { background:#0f766e; color:white; "
+            "font-weight:600; border-radius:6px; padding:0 24px; "
+            "font-size:13px; }"
+            "QPushButton:hover { background:#0d8a80; }")
+        self._toolbar_but_run.clicked.connect(self._on_run)
+        toolbar.addWidget(self._toolbar_but_run)
+
+        # Status (hiển thị thông báo phân tích)
+        self._toolbar_status = QLabel("")
+        self._toolbar_status.setStyleSheet(
+            "color:#475569; font-size:12px; padding-left:14px;")
+        toolbar.addWidget(self._toolbar_status)
+        # Re-alias lbl_status → method khác (_nap_bang_gia, _on_run) dùng được
+        self.lbl_status = self._toolbar_status
+
+        # 3. SSOT sync — 1 chiều: ks_* (Khảo sát visible) → widget cũ (hidden)
+        # Khi user nhập ở Khảo sát, widget cũ tự nhận giá trị → _get_input() đọc đúng
+        ks_to_old_spin = [
+            (self.ks_dt_san_tong, self.spin_dt),
+            (self.ks_cao_pccc, self.spin_cao),
+            (self.ks_dai_nha, self.spin_dai),
+            (self.ks_rong_nha, self.spin_rong),
+            (self.ks_so_tang_noi, self.spin_tang),
+            (self.ks_so_tang_ham, self.spin_ham),
+            (self.ks_so_phong, self.spin_so_phong),
+            (self.ks_so_nguoi_du_kien, self.spin_nguoi),
+            (self.ks_so_chau, self.spin_chau),
+        ]
+        for ks_w, old_w in ks_to_old_spin:
+            ks_w.valueChanged.connect(
+                lambda v, _old=old_w: _old.setValue(v))
+            # Sync giá trị ban đầu
+            old_w.setValue(ks_w.value())
+
+        ks_to_old_text = [
+            (self.ks_ten_cong_trinh, self.kh_ten),
+            (self.ks_dia_chi, self.kh_dc),
+            (self.ks_kh_cty, self.kh_cty),
+            (self.ks_kh_mst, self.kh_mst),
+        ]
+        for ks_w, old_w in ks_to_old_text:
+            ks_w.textChanged.connect(
+                lambda t, _old=old_w: _old.setText(t))
+            old_w.setText(ks_w.text())
+
+        # Công năng combo (ks_cong_nang ↔ cbo_cong_nang)
+        self.ks_cong_nang.currentIndexChanged.connect(
+            lambda i: self.cbo_cong_nang.setCurrentIndex(i))
+        # Sync ngược: nếu cbo_cong_nang đã có sẵn từ ttkh_initial → đẩy về ks
+        if self.cbo_cong_nang.currentIndex() > 0:
+            self.ks_cong_nang.setCurrentIndex(self.cbo_cong_nang.currentIndex())
+
+        # Tab Cấp nước CC: combobox bậc/NHC/hạng/nguồn — đồng bộ từ Khảo sát
+        if hasattr(self, "cbo_bac_chiu_lua"):
+            self.ks_bac_chiu_lua.currentIndexChanged.connect(
+                lambda i: self.cbo_bac_chiu_lua.setCurrentIndex(i))
+            self.cbo_bac_chiu_lua.setCurrentIndex(
+                self.ks_bac_chiu_lua.currentIndex())
+        if hasattr(self, "cbo_cap_nhc"):
+            self.ks_cap_nhc.currentIndexChanged.connect(
+                lambda i: self.cbo_cap_nhc.setCurrentIndex(i))
+            self.cbo_cap_nhc.setCurrentIndex(self.ks_cap_nhc.currentIndex())
+        if hasattr(self, "cbo_hang_sx"):
+            self.ks_hang_nguy_hiem.currentIndexChanged.connect(
+                lambda i: self.cbo_hang_sx.setCurrentIndex(i))
+            self.cbo_hang_sx.setCurrentIndex(
+                self.ks_hang_nguy_hiem.currentIndex())
+
+        # Nguồn nước: ks_nn_* checkboxes → cbo_nguon_nuoc (lấy item đầu tiên)
+        if hasattr(self, "cbo_nguon_nuoc"):
+            def _sync_nguon_nuoc():
+                for key, cb in self.ks_nguon_nuoc_checks.items():
+                    if cb.isChecked():
+                        for i in range(self.cbo_nguon_nuoc.count()):
+                            if self.cbo_nguon_nuoc.itemData(i) == key:
+                                self.cbo_nguon_nuoc.setCurrentIndex(i)
+                                return
+            for cb in self.ks_nguon_nuoc_checks.values():
+                cb.toggled.connect(lambda _v: _sync_nguon_nuoc())
+
+        # ===== M16: Auto-fill DT sàn = D × R × số tầng =====
+        def _ks_auto_fill_dt():
+            if getattr(self, "_dt_user_modified", False):
+                return
+            D = float(self.ks_dai_nha.value())
+            R_ = float(self.ks_rong_nha.value())
+            floors = (int(self.ks_so_tang_noi.value())
+                      + int(self.ks_so_tang_ham.value()))
+            if D > 0 and R_ > 0 and floors > 0:
+                dt = D * R_ * floors
+                self.ks_dt_san_tong.blockSignals(True)
+                self.ks_dt_san_tong.setValue(dt)
+                self.ks_dt_san_tong.blockSignals(False)
+                # Đồng bộ luôn về widget cũ
+                self.spin_dt.blockSignals(True)
+                self.spin_dt.setValue(dt)
+                self.spin_dt.blockSignals(False)
+        for w in (self.ks_dai_nha, self.ks_rong_nha,
+                  self.ks_so_tang_noi, self.ks_so_tang_ham):
+            w.editingFinished.connect(_ks_auto_fill_dt)
+        # User sửa tay ks_dt_san_tong → đánh dấu (không auto nữa)
+        self.ks_dt_san_tong.editingFinished.connect(
+            lambda: setattr(self, "_dt_user_modified", True))
+        # Chạy 1 lần init
+        _ks_auto_fill_dt()
+
+        # ===== M16: Ẩn/hiện ks_so_chau + ks_so_nguoi theo công năng =====
+        def _ks_on_cong_nang_changed():
+            cn = R.get_cong_nang(self.ks_cong_nang.currentData())
+            if cn is None:
+                return
+            need_nguoi = cn.get("nguoi", False)
+            need_chau = cn.get("chau", False)
+            self.ks_lbl_so_nguoi.setVisible(need_nguoi)
+            self.ks_so_nguoi_du_kien.setVisible(need_nguoi)
+            self.ks_lbl_so_chau.setVisible(need_chau)
+            self.ks_so_chau.setVisible(need_chau)
+        self.ks_cong_nang.currentIndexChanged.connect(
+            lambda _i: _ks_on_cong_nang_changed())
+        _ks_on_cong_nang_changed()  # init theo lựa chọn ban đầu
+
     # ---------------- TAB CẤP NƯỚC CC ----------------
     def _build_tab_cap_nuoc(self):
         """Tạo tab 'Cấp nước CC' bằng code, chèn trước tab Báo giá.
@@ -404,6 +637,18 @@ class TuVanPCCC(QMainWindow):
         self.cbo_nguon_nuoc.addItem("Bể chứa riêng", "be_chua")
         self.cbo_nguon_nuoc.addItem("Sông / hồ / ao", "song_ho")
         form.addRow("Nguồn cấp nước:", self.cbo_nguon_nuoc)
+
+        # Loại bơm dự phòng (TCVN 7336 5.8.4 cho phép diesel)
+        self.cbo_loai_bom_dp = QComboBox()
+        self.cbo_loai_bom_dp.addItem("🔋 Diesel (khuyến nghị)", "diesel")
+        self.cbo_loai_bom_dp.addItem("⚡ Điện (cần 2 nguồn điện)", "dien")
+        self.cbo_loai_bom_dp.setToolTip(
+            "TCVN 7336:2021 mục 5.8.2 — bắt buộc có bơm dự phòng.\n"
+            "Diesel (mặc định): an toàn nhất, không phụ thuộc lưới điện.\n"
+            "Điện: rẻ hơn nhưng yêu cầu công trình có 2 nguồn điện độc lập.")
+        self.cbo_loai_bom_dp.currentIndexChanged.connect(
+            self._on_loai_bom_dp_changed)
+        form.addRow("Loại bơm dự phòng:", self.cbo_loai_bom_dp)
 
         v.addWidget(gb)
 
@@ -594,21 +839,46 @@ class TuVanPCCC(QMainWindow):
             slots_all = R.build_slots(items_for_bom, i_for_bom)
         except Exception:
             slots_all = []
-        bom_slot = next(
+        # Tìm slot bơm chính (chứa bom_info đầy đủ)
+        bom_chinh = next(
             (s for s in slots_all
-             if s.get("loai") == "cum_bom" and "bom_info" in s),
+             if s.get("loai") == "cum_bom_chinh" and "bom_info" in s),
             None)
-        if bom_slot:
-            b = bom_slot["bom_info"]
+        bom_dp = next(
+            (s for s in slots_all if s.get("loai") == "cum_bom_dp"),
+            None)
+        bom_bu_ap = next(
+            (s for s in slots_all if s.get("loai") == "cum_bom_bu_ap"),
+            None)
+
+        if bom_chinh:
+            b = bom_chinh["bom_info"]
+            loai_bom_dp = i_for_bom.get("loai_bom_dp", "diesel")
+            loai_dp_text = ("🔋 Diesel" if loai_bom_dp == "diesel"
+                            else "⚡ Điện")
             html += (
                 "<br><br><h4 style='color:#7c2d12;margin:0'>"
-                "⚙ CỤM BƠM CHỮA CHÁY (TCVN 7336 B.3.8 + B.3.9)</h4>"
-                + "<b>Khuyến nghị: Q ≥ " + str(b["Q_ls"])
-                + " L/s (" + str(b["Q_m3h"])
-                + " m³/h), H ≥ " + str(b["H_m"]) + " m</b><br>"
+                "⚙ TRẠM BƠM CHỮA CHÁY (TCVN 7336 mục 5.8 + B.3.8/B.3.9)</h4>"
                 + b["thuyet_minh"]
-                + "<br><i>Sales chọn model thực tế (Pentax/Ebara/Wilo/...) "
-                "qua nút <b>'Đổi model'</b> ở tab Báo giá với Q-H ≥ giá trị trên.</i>"
+                + "<br><b>📌 Thành phần trạm bơm (TCVN 7336 mục 5.8.2):</b><br>"
+                + f"&nbsp;&nbsp;1. <b>Bơm CHÍNH</b> (điện): Q ≥ {b['Q_m3h']:.0f} m³/h, "
+                + f"H ≥ {b['H_m']:.0f} m, N ≥ {b['N_dv_kw']} kW<br>"
+                + f"&nbsp;&nbsp;2. <b>Bơm DỰ PHÒNG</b> ({loai_dp_text}): "
+                + f"cùng Q-H, N ≥ {b['N_dv_kw'] * (1.2 if loai_bom_dp == 'diesel' else 1):.0f} kW "
+                + "<i>(bắt buộc theo 5.8.2, tự bật khi bơm chính hỏng)</i><br>"
+            )
+            if bom_bu_ap:
+                bb = bom_bu_ap["bom_info"]
+                html += (
+                    f"&nbsp;&nbsp;3. <b>Bơm BÙ ÁP</b> (jockey): "
+                    f"Q ≈ {bb['Q_m3h']} m³/h, H ≥ {bb['H_m']:.0f} m "
+                    + "<i>(duy trì áp đường ống sprinkler, tránh bơm chính khởi động liên tục)</i><br>"
+                )
+            html += (
+                "&nbsp;&nbsp;4. <b>Tủ điện điều khiển</b> trạm bơm chữa cháy<br>"
+                "<br><i>Sales chọn model thực tế (Pentax/Ebara/Wilo/Affetti…) "
+                "qua nút <b>'Đổi model'</b> ở tab Báo giá. App đã gợi ý top 3 "
+                "từ catalog Affetti theo Q-H-N tính được.</i>"
             )
 
         self.lbl_cap_nuoc_result.setText(html)
@@ -721,6 +991,8 @@ class TuVanPCCC(QMainWindow):
             "hang_sx": getattr(self, "hang_sx", "C"),
             "cap_nhc_kc": getattr(self, "cap_nhc_kc", "S0"),
             "nguon_nuoc": getattr(self, "nguon_nuoc", "duong_ong"),
+            "loai_bom_dp": (self.cbo_loai_bom_dp.currentData()
+                            if hasattr(self, "cbo_loai_bom_dp") else "diesel"),
             "binhPerFloor": 100,
             "binhReserve": 10,
         }
@@ -832,6 +1104,15 @@ class TuVanPCCC(QMainWindow):
                 break
         self.cbo_bg_group.blockSignals(False)
 
+    def _on_loai_bom_dp_changed(self, _idx: int):
+        """User đổi loại bơm dự phòng → re-render báo giá + cấp nước CC."""
+        if not self.last_result:
+            return
+        if hasattr(self, "lbl_cap_nuoc_result"):
+            self._render_cap_nuoc()
+        self._render_bao_gia()
+        self._render_tu_van()
+
     def _on_bg_group_changed(self, _idx: int):
         """User đổi nhóm hệ báo cháy từ combobox -> confirm + đổi cả hệ."""
         new_group = self.cbo_bg_group.currentData()
@@ -923,9 +1204,15 @@ class TuVanPCCC(QMainWindow):
         self.last_result_raw = res
         self._apply_optional_wants_to_last_result()
         res = self.last_result
-        # Tự chọn nhóm hệ báo cháy theo bcState:
-        # doc_lap -> cục bộ; tu_dong -> giữ nguyên user-selected (mặc định không dây)
-        if res["bcState"] == "doc_lap":
+        # Tự chọn nhóm hệ báo cháy theo bcState + optional_wants:
+        # - doc_lap (bắt buộc tối thiểu độc lập) -> cục bộ
+        # - khuyen_nghi + user chọn 'Muốn trang bị' bao_chay_doc_lap -> cục bộ
+        # - tu_dong -> giữ nguyên user-selected (mặc định không dây)
+        used_doc_lap = (
+            res["bcState"] == "doc_lap"
+            or (res["bcState"] == "khuyen_nghi"
+                and "bao_chay_doc_lap" in self.optional_wants))
+        if used_doc_lap:
             self.bg_group = "cuc_bo"
         elif res["bcState"] == "tu_dong" and self.bg_group == "cuc_bo":
             # User trước đó chọn cục bộ nhưng giờ công trình đủ lớn -> reset về mặc định
@@ -1002,6 +1289,14 @@ class TuVanPCCC(QMainWindow):
             self.optional_wants.add(nhom)
         # Re-apply + re-render
         self._apply_optional_wants_to_last_result()
+        # Auto-switch bg_group khi user chọn "Muốn trang bị" báo cháy độc lập
+        # (case khuyến nghị → tự chuyển bg_group sang cục bộ để match SP)
+        if (self.last_result_raw
+                and self.last_result_raw["bcState"] == "khuyen_nghi"
+                and "bao_chay_doc_lap" in self.optional_wants
+                and self.bg_group != "cuc_bo"):
+            self.bg_group = "cuc_bo"
+            self._sync_bg_group_combo()
         self._render_thiet_bi()
         if hasattr(self, "lbl_cap_nuoc_result"):
             self._render_cap_nuoc()
@@ -1348,6 +1643,7 @@ class TuVanPCCC(QMainWindow):
                     "nhan_cong_unit": 0,
                     "parent_ht": s.get("parent_ht", ""),
                     "group": group,
+                    "bom_info": s.get("bom_info"),  # cho dialog Đổi model gợi ý từ catalog
                 })
                 continue
 
@@ -1370,7 +1666,20 @@ class TuVanPCCC(QMainWindow):
                         "sprinkler_up", "sprinkler_down"):
                     prefer = ["k=5.6", "k 5.6", "k5.6", "k 5,6", "k=5,6",
                               "5.6", "5,6", "68"]
-                idx = self._find_product(s["nhom"], s["loai"],
+                # Báo cháy độc lập / chuông đèn cục bộ: ưu tiên model -002
+                # (FS-SS-002, FS-SH-002, FSMBL-002) — đời mới hơn
+                find_nhom = s["nhom"]
+                find_loai = s["loai"]
+                if s["nhom"] == "bao_chay_doc_lap" and s["loai"] in (
+                        "doc_lap_khoi", "doc_lap_nhiet"):
+                    prefer = ["-002", "002"]
+                elif (s["nhom"] == "bao_chay_doc_lap"
+                      and s["loai"] == "chuong_den"):
+                    # Catalog có FSMBL-002 với nhom='bao_chay' (do classify_nhom
+                    # match 'tổ hợp' trước) — chuyển nhom để tìm thấy, lọc cuc_bo
+                    find_nhom = "bao_chay"
+                    prefer = ["fsmbl-002", "fsmbl 002", "-002"]
+                idx = self._find_product(find_nhom, find_loai,
                                          group=group, prefer=prefer)
 
             if idx < 0:
@@ -1454,16 +1763,18 @@ class TuVanPCCC(QMainWindow):
                 "'Đổi model' để chọn SP thay thế thủ công.</i>")
         self._missing_nc_pending = []  # reset sau khi đã cảnh báo
 
-        # Chèn header rows trước mỗi nhóm parent_ht
-        # rows từ slots đã đến từ build_slots theo thứ tự items → parent_ht giữ thứ tự
-        grouped_rows = []
-        seen_ht = None
+        # Gom các row có cùng parent_ht thành 1 nhóm (preserve thứ tự
+        # lần đầu xuất hiện) — tránh duplicate header cho các slot xa nhau
+        # nhưng cùng parent_ht (vd 'Phương tiện chữa cháy ban đầu' xuất hiện
+        # ở cả bình chữa cháy và nội quy/tiêu lệnh)
+        buckets = {}
         for r in rows:
             ph = r.get("parent_ht") or "(Khác)"
-            if ph != seen_ht:
-                grouped_rows.append({"is_header": True, "ten": ph})
-                seen_ht = ph
-            grouped_rows.append(r)
+            buckets.setdefault(ph, []).append(r)
+        grouped_rows = []
+        for ph, items_in_group in buckets.items():
+            grouped_rows.append({"is_header": True, "ten": ph})
+            grouped_rows.extend(items_in_group)
         self.bg_rows = grouped_rows
 
         # Render bảng — plain text cells, style giống Fsales quotation
@@ -1650,13 +1961,65 @@ class TuVanPCCC(QMainWindow):
                                     "Hãy chọn 1 dòng trước rồi bấm 'Đổi model'.")
             return
         r = self.bg_rows[row]
+        # Chặn nếu user click vào dòng HEADER (không có nhom)
+        if r.get("is_header") or "nhom" not in r:
+            QMessageBox.information(
+                self, "Không thể đổi model",
+                "Dòng đang chọn là tiêu đề nhóm. Vui lòng chọn dòng sản phẩm "
+                "cụ thể bên dưới rồi bấm 'Đổi model' lại.")
+            return
         # Cho phép chọn BẤT KỲ SP cùng nhom (không khống chế bg_group)
         # — sau khi user pick SP khác nhóm, app sẽ auto-switch toàn hệ báo cháy
         candidates = [(ci, c) for ci, c in enumerate(self.catalog)
                       if c["nhom"] == r["nhom"]]
-        if not candidates:
+        # Nếu đổi model cho dòng BƠM (cum_bom_*) → chỉ list SP có chữ "bơm"
+        # trong tên (tránh hiển thị van/ống/rắc co cùng nhóm hong_nuoc)
+        if r.get("loai", "").startswith("cum_bom"):
+            candidates = [(ci, c) for ci, c in candidates
+                          if "bơm" in (c.get("ten", "") or "").lower()]
+
+        # Trạm bơm (chính/dự phòng/bù áp): bổ sung GỢI Ý từ bom_catalog.json
+        # — lọc đúng loại bơm theo vai trò (bom_role)
+        bom_suggestions = []
+        bom_loais = ("cum_bom", "cum_bom_chinh", "cum_bom_dp", "cum_bom_bu_ap")
+        if r.get("loai") in bom_loais and r.get("bom_info"):
+            bi = r["bom_info"]
+            role = r.get("bom_role", "chinh")
+            # Xác định loai_bom catalog theo vai trò
+            if role == "bu_ap":
+                loai_bom_filter = "bu_ap"
+                # Bù áp: không filter kW (Q nhỏ + H cao)
+                n_kw_filter = 0
+                # bù áp đặc thù — KHÔNG exclude_bu_ap
+                exclude_bu_ap = False
+            elif role == "dp":
+                # Bơm dự phòng: chọn loại theo combobox
+                loai_bom_dp_user = r.get("loai_bom_dp", "diesel")
+                if loai_bom_dp_user == "diesel":
+                    loai_bom_filter = "diesel_3000"
+                else:
+                    loai_bom_filter = "auto"  # bơm điện (liền/rời trục theo kW)
+                n_kw_filter = float(bi.get("N_dv_kw", 0))
+                exclude_bu_ap = True
+            else:  # chinh
+                loai_bom_filter = "auto"  # liền/rời trục tự chọn theo kW
+                n_kw_filter = float(bi.get("N_dv_kw", 0))
+                exclude_bu_ap = True
+            try:
+                bom_suggestions = R.goi_y_bom(
+                    q_m3h=float(bi.get("Q_m3h", 0)),
+                    h_m=float(bi.get("H_m", 0)),
+                    n_kw_min=n_kw_filter,
+                    loai_bom=loai_bom_filter,
+                    top_n=3,
+                    exclude_bu_ap=exclude_bu_ap) or []
+            except Exception:
+                bom_suggestions = []
+
+        if not candidates and not bom_suggestions:
             QMessageBox.information(self, "Không có model",
-                                    f"Bảng giá Fsales không có SP nhóm '{r['nhom']}'.")
+                                    f"Bảng giá Fsales không có SP nhóm '{r['nhom']}' "
+                                    f"và bom_catalog.json không có gợi ý phù hợp.")
             return
 
         from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QListWidget, QListWidgetItem
@@ -1676,12 +2039,33 @@ class TuVanPCCC(QMainWindow):
         def _fill(filter_text=""):
             lst.clear()
             ft = filter_text.lower().strip()
+            # 1. Gợi ý từ bom_catalog.json — chèn lên đầu
+            if bom_suggestions and not ft:
+                header = QListWidgetItem("💡 GỢI Ý TỪ BOM_CATALOG.JSON")
+                header.setFlags(Qt.ItemFlag.NoItemFlags)
+                f = header.font(); f.setBold(True); header.setFont(f)
+                header.setBackground(Qt.GlobalColor.cyan)
+                lst.addItem(header)
+                for k, b in enumerate(bom_suggestions):
+                    txt = (f"{b['hang']} {b['model']}  |  {b['kw']}kW  "
+                           f"|  Q={b['q_min']}-{b['q_max']} m³/h  "
+                           f"|  H={b['h_min']}-{b['h_max']} m  "
+                           f"|  {_fmt_money(b['gia'])} đ  [{b['loai']}]")
+                    it = QListWidgetItem(txt)
+                    # mark là suggestion: lưu dict, không phải int ci
+                    it.setData(Qt.ItemDataRole.UserRole, ("BOM", b))
+                    lst.addItem(it)
+                # separator
+                sep = QListWidgetItem("───────── Bảng giá Fsales ─────────")
+                sep.setFlags(Qt.ItemFlag.NoItemFlags)
+                lst.addItem(sep)
+            # 2. Catalog Fsales
             for ci, c in candidates:
                 txt = f"{c['ten']}  |  {c['model']}  |  {c['hieu']}  |  {_fmt_money(c['gia'])} đ"
                 if ft and ft not in txt.lower():
                     continue
                 it = QListWidgetItem(txt)
-                it.setData(Qt.ItemDataRole.UserRole, ci)
+                it.setData(Qt.ItemDataRole.UserRole, ("CI", ci))
                 if ci == r["ci"]:
                     f = it.font(); f.setBold(True); it.setFont(f)
                 lst.addItem(it)
@@ -1699,7 +2083,28 @@ class TuVanPCCC(QMainWindow):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             it = lst.currentItem()
             if it is not None:
-                ci = int(it.data(Qt.ItemDataRole.UserRole))
+                data = it.data(Qt.ItemDataRole.UserRole)
+                if not isinstance(data, tuple):
+                    return
+                kind, payload = data
+                # Suggestion từ bom_catalog.json → áp dữ liệu vào row
+                if kind == "BOM":
+                    b = payload
+                    r2 = self.bg_rows[row]
+                    r2["ten"] = (f"Cụm bơm {b['hang']} {b['model']} "
+                                 f"{b['kw']}kW (Q={b['q_min']}-{b['q_max']} m³/h, "
+                                 f"H={b['h_min']}-{b['h_max']} m)")
+                    r2["model"] = b['model']
+                    r2["hieu"] = b['hang']
+                    r2["gia"] = int(b['gia'])
+                    r2["dv"] = "Cụm"
+                    r2["ci"] = -1
+                    # KHÔNG gọi _render_bao_gia() (sẽ rebuild rows từ slots
+                    # và mất lựa chọn user). Chỉ cập nhật cell trực tiếp.
+                    self._render_bg_row(row, r2)
+                    self._recalc_bg()
+                    return
+                ci = int(payload)
                 c = self.catalog[ci]
 
                 # Nếu SP mới thuộc nhóm báo cháy KHÁC nhóm hiện tại → auto-switch
@@ -1728,24 +2133,43 @@ class TuVanPCCC(QMainWindow):
 
 
     def _them_dong_bg(self):
-        """Thêm 1 dòng trống — sales tự pick model. Đặt vào nhóm 'Khác/Tùy chọn'."""
+        """Thêm 1 dòng mới ngay SAU dòng đang chọn, kế thừa parent_ht (nhóm)
+        của dòng đó. Nếu chưa chọn dòng nào → fallback vào nhóm 'Khác/Tùy chọn'."""
         if not self.catalog:
             QMessageBox.information(self, "Chưa có bảng giá",
                                     "Bảng giá Fsales chưa nạp được — không thêm dòng được.")
             return
         c = self.catalog[0]
-        # Kiểm tra đã có header "Khác / Tùy chọn thêm" chưa
-        custom_ht = "Khác / Tùy chọn thêm"
-        has_header = any(r.get("is_header") and r.get("ten") == custom_ht
-                         for r in self.bg_rows)
-        if not has_header:
-            self.bg_rows.append({"is_header": True, "ten": custom_ht})
+        cur_row = self.tb_bg.currentRow()
+
+        # Xác định nhóm + vị trí chèn
+        if 0 <= cur_row < len(self.bg_rows):
+            sel = self.bg_rows[cur_row]
+            if sel.get("is_header"):
+                # User chọn dòng header → chèn ngay sau header, thuộc nhóm đó
+                parent_ht = sel.get("ten", "Khác / Tùy chọn thêm")
+                insert_at = cur_row + 1
+            else:
+                # User chọn dòng SP → kế thừa parent_ht, chèn ngay sau
+                parent_ht = sel.get("parent_ht") or "Khác / Tùy chọn thêm"
+                insert_at = cur_row + 1
+        else:
+            # Chưa chọn dòng nào → fallback vào nhóm Khác ở cuối
+            parent_ht = "Khác / Tùy chọn thêm"
+            insert_at = len(self.bg_rows)
+            # Đảm bảo có header Khác
+            has_header = any(rr.get("is_header") and rr.get("ten") == parent_ht
+                             for rr in self.bg_rows)
+            if not has_header:
+                self.bg_rows.append({"is_header": True, "ten": parent_ht})
+                insert_at = len(self.bg_rows)
+
         r = {"label": "(Tùy chọn thêm)", "nhom": c["nhom"], "loai": c["loai"],
              "ci": 0, "sl": 1, "ten": c["ten"], "model": c["model"],
              "hieu": c["hieu"], "dv": c["dv"], "gia": c["gia"], "vat": c["vat"],
              "nhan_cong_unit": c.get("nhan_cong_unit", 0),
-             "parent_ht": custom_ht}
-        self.bg_rows.append(r)
+             "parent_ht": parent_ht}
+        self.bg_rows.insert(insert_at, r)
         # Re-render toàn bảng để giữ thứ tự header/rows nhất quán
         self.tb_bg.blockSignals(True)
         self.tb_bg.clearSpans()
@@ -1755,6 +2179,8 @@ class TuVanPCCC(QMainWindow):
         self.tb_bg.blockSignals(False)
         self._renum_stt()
         self._recalc_bg()
+        # Highlight dòng mới chèn
+        self.tb_bg.setCurrentCell(insert_at, 0)
 
     def _xoa_dong_bg(self):
         """Xóa dòng đang chọn (không cho xóa header)."""
@@ -1838,33 +2264,153 @@ class TuVanPCCC(QMainWindow):
         )
         self.txt_tu_van.setHtml("".join(lines))
 
+    def _autofill_customer_profile(self):
+        """Tra misc.lookup_customer_profile theo MST/SĐT, điền các ô còn trống."""
+        if getattr(self, "_autofill_busy", False):
+            return
+        self._autofill_busy = True
+        try:
+            import re as _re
+            sdt = _re.sub(r"\D", "", self.kh_dt.text() or "")
+            mst = _re.sub(r"\D", "", self.kh_mst.text() or "")
+            if not sdt and not mst:
+                return
+            try:
+                profile = misc.lookup_customer_profile(phone=sdt, mst=mst)
+            except Exception:
+                return
+            if not profile:
+                return
+
+            def _set_if_blank(widget, value):
+                if value is None:
+                    return
+                value = str(value).strip()
+                if not value:
+                    return
+                if not widget.text().strip():
+                    widget.setText(value)
+
+            _set_if_blank(self.kh_cty, profile.get("company_name"))
+            _set_if_blank(self.kh_ten, profile.get("contact_name")
+                          or profile.get("person_name"))
+            _set_if_blank(self.kh_dc, profile.get("address"))
+            if not mst:
+                _set_if_blank(self.kh_mst, profile.get("tax_code"))
+            if not sdt:
+                _set_if_blank(self.kh_dt, profile.get("person_phone"))
+        finally:
+            self._autofill_busy = False
+
+    def _build_ttkh(self) -> dict:
+        return {
+            "cty": self.kh_cty.text().strip(),
+            "ten": self.kh_ten.text().strip(),
+            "sdt": self.kh_dt.text().strip(),
+            "mst": self.kh_mst.text().strip(),
+            "dia_chi": self.kh_dc.text().strip(),
+            "vv": self.kh_vv.text().strip(),
+        }
+
     def _xuat_excel(self):
         if not self.bg_rows:
             QMessageBox.information(self, "Chưa có dữ liệu",
                                     "Bấm Phân tích trước để sinh báo giá.")
             return
+        # Chỉ cho xuất khi đã link lead (mở từ form Update lead → Hỗ trợ tư vấn)
+        if not self.lead_id:
+            QMessageBox.warning(
+                self, "Chưa link lead",
+                "Tư vấn PCCC đang ở chế độ tham khảo (chưa link lead).<br><br>"
+                "Để xuất báo giá chính thức (có số BG + đính kèm vào lead):<br>"
+                "1. Vào màn hình <b>Update lead</b> trên Fsales<br>"
+                "2. Nhấn nút <b>🛠 Hỗ trợ tư vấn</b><br>"
+                "App sẽ tự link lead và truyền thông tin KH.")
+            return
         ten_kh = self.kh_ten.text().strip() or "Khach hang"
         vv = self.kh_vv.text().strip() or "He thong PCCC"
-        default_name = goi_y_ten_file(ten_kh, vv)
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Lưu báo giá Excel", default_name, "Excel Files (*.xlsx)")
-        if not path:
+        ttkh = self._build_ttkh()
+
+        # 1. Gọi misc.tao_bao_gia → tự check_lead_ready + sinh so_bg + insert ds_bao_gia
+        try:
+            msg, so_bg = misc.tao_bao_gia(self.lead_id, self.user)
+        except Exception as e:
+            QMessageBox.critical(self, "Không tạo được báo giá", str(e))
             return
-        ttkh = {
-            "ten": self.kh_ten.text().strip(),
-            "dia_chi": self.kh_dc.text().strip(),
-            "sdt": self.kh_dt.text().strip(),
-            "vv": self.kh_vv.text().strip(),
-        }
+
+        # 2. Build path local theo so_bg
+        import os as _os
+        default_name = f"BG_{so_bg}_{goi_y_ten_file(ten_kh, vv)}"
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"Lưu báo giá #{so_bg}", default_name,
+            "Excel Files (*.xlsx)")
+        if not path:
+            QMessageBox.information(self, "Đã hủy",
+                                    f"Đã tạo số BG #{so_bg} nhưng chưa lưu file. "
+                                    "Anh có thể xuất lại sau.")
+            return
+
+        # 3. Xuất Excel
         try:
             out = xuat_bao_gia_pccc(
                 bg_rows=self.bg_rows, ttkh=ttkh,
                 nguoi_lap=self.user, sdt_nguoi_lap=self.user_phone,
+                file_out=path, so_bg=so_bg)
+        except TypeError:
+            # Fallback nếu xuat_bao_gia_pccc chưa có param so_bg
+            out = xuat_bao_gia_pccc(
+                bg_rows=self.bg_rows, ttkh=ttkh,
+                nguoi_lap=self.user, sdt_nguoi_lap=self.user_phone,
                 file_out=path)
-            QMessageBox.information(self, "Thành công",
-                                    f"Đã lưu báo giá:\n{out}")
         except Exception as e:
             QMessageBox.critical(self, "Lỗi xuất Excel", str(e))
+            return
+
+        # 4. Update ds_bao_gia với sotien + noi_dung
+        try:
+            tong_tien = 0
+            for r in self.bg_rows:
+                if r.get("is_header"):
+                    continue
+                sl = int(r.get("sl", 0) or 0)
+                gia = int(r.get("gia", 0) or 0)
+                tong_tien += sl * gia
+            noi_dung = vv or "He thong PCCC"
+            misc.sql_commit(
+                "UPDATE ds_bao_gia SET sotien=%s, noi_dung=%s WHERE so_bg=%s",
+                (tong_tien, noi_dung, so_bg))
+        except Exception as e:
+            print("Loi update ds_bao_gia:", e)
+
+        # 5. Upload + đính kèm vào sale_lead.file
+        upload_ok = False
+        try:
+            import file_handle
+            upload_ok = file_handle.attach_file_to_lead(self.lead_id, path)
+        except Exception as e:
+            print("Loi upload bao gia PCCC:", e)
+
+        # 6. Thông báo
+        if upload_ok:
+            QMessageBox.information(
+                self, "Thành công",
+                f"Đã tạo báo giá #{so_bg}.<br>"
+                f"File lưu local: {path}<br>"
+                f"Đã đính kèm vào Lead #{self.lead_id}.")
+        else:
+            QMessageBox.warning(
+                self, "Lưu file OK, upload thất bại",
+                f"Đã tạo báo giá #{so_bg} và lưu file local: {path}<br>"
+                f"⚠ Chưa upload được lên Google Drive — anh có thể "
+                f"upload thủ công qua màn hình Update lead.")
+        # Audit log
+        try:
+            misc.audit_log(self.user or 'unknown',
+                           'EXPORT_QUOTE_PCCC',
+                           'file', '-', _os.path.basename(path),
+                           self.lead_id)
+        except Exception:
+            pass
 
     def _build_tab_ho_so_phap_ly(self):
         tab = QWidget()
@@ -2005,17 +2551,4 @@ class TuVanPCCC(QMainWindow):
             QMessageBox.warning(self, "Thiếu module",
                                 "Cần cài PyQt6-Qt6 để in/lưu PDF.")
             return
-        doc = QTextDocument()
-        doc.setHtml(self.txt_tu_van.toHtml())
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        dlg = QPrintDialog(printer, self)
-        if dlg.exec():
-            doc.print(printer)
-
-
-if __name__ == "__main__":
-    import sys
-    app = QApplication(sys.argv)
-    w = TuVanPCCC(user="Phí Ngọc Tùng", user_phone="0934630366")
-    w.show()
-    sys.exit(app.exec())
+        doc = QText

@@ -151,6 +151,9 @@ class LeadHandle(QMainWindow):
 
         self.uic4.but_baogia.clicked.connect(lambda: LeadHandle.show_quotato_from_lead(self, lead_id))
 
+        self.uic4.but_ho_tro_tu_van.clicked.connect(
+            lambda: LeadHandle.open_tu_van_pccc_from_lead(self, lead_id))
+
         self.uic4.but_sua_tt.clicked.connect(lambda: LeadHandle.sua_tt_kh(self))
 
     def persist_update_lead_status(self, lead_id):
@@ -691,6 +694,42 @@ class LeadHandle(QMainWindow):
 
                 misc.sql_commit("UPDATE ds_cong_ty SET leads = %s, ten_cong_ty = %s, nguoi_lien_he = %s, sdt_nguoi_lh = %s, dia_chi = %s "
                                 "WHERE mst = %s", (new_lead_id, tencongty, ttkh[0], ttkh[1], diachi, mst,))
+
+    def open_tu_van_pccc_from_lead(self, lead_id):
+        """Mở màn Tư vấn PCCC, fill thông tin KH từ lead."""
+        # Persist trạng thái hiện tại (giống flow show_quotato_from_lead)
+        if hasattr(self, 'uic4') and not LeadHandle.persist_update_lead_status(self, lead_id):
+            return
+        try:
+            row = misc.sql_one(
+                "SELECT name, sdt, company, mst, yc, address "
+                "FROM sale_lead WHERE lead_id = %s", (lead_id,))
+        except Exception as e:
+            QMessageBox.warning(self.win_update_lead, "Lỗi",
+                                f"Không đọc được thông tin lead: {e}")
+            return
+        if not row:
+            QMessageBox.warning(self.win_update_lead, "Lỗi",
+                                f"Không tìm thấy lead #{lead_id}")
+            return
+        name, sdt, company, mst, yc, address = row
+        name, company, _ = LeadHandle._normalize_customer_company_fields(name, company)
+        ttkh = {
+            "cty": str(company or ""),
+            "ten": str(name or ""),
+            "sdt": str(sdt or ""),
+            "mst": str(mst or ""),
+            "dia_chi": str(address or ""),
+            "vv": str(yc or ""),
+        }
+        try:
+            from tu_van_pccc import TuVanPCCC
+            self.win_tu_van_pccc = TuVanPCCC(
+                user=self.user, user_phone=self.user_phone,
+                lead_id=int(lead_id), ttkh_initial=ttkh)
+            self.win_tu_van_pccc.show()
+        except Exception as e:
+            QMessageBox.critical(self.win_update_lead, "Lỗi mở Tư vấn PCCC", str(e))
 
     def show_quotato_from_lead(self, lead_id):
         if hasattr(self, 'uic4') and not LeadHandle.persist_update_lead_status(self, lead_id):

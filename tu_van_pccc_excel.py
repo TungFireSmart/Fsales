@@ -31,6 +31,7 @@ def xuat_bao_gia_pccc(
     sdt_nguoi_lap: str,
     file_out: str,
     template: str = "bao_gia_mau.xlsx",
+    so_bg=None,
 ) -> str:
     """
     Tao file Excel bao gia PCCC tu template cong ty.
@@ -55,7 +56,12 @@ def xuat_bao_gia_pccc(
     sheet = wb["Quotation"]
 
     now_str = datetime.datetime.now().strftime("%d-%m-%Y")
-    so_bg = "PCCC-" + datetime.datetime.now().strftime("%y%m%d%H%M%S")
+    if so_bg is not None:
+        # Số BG từ Fsales (misc.tao_bao_gia) — dùng nguyên gốc
+        so_bg = str(so_bg)
+    else:
+        # Standalone mode: tự sinh timestamp
+        so_bg = "PCCC-" + datetime.datetime.now().strftime("%y%m%d%H%M%S")
 
     # --- Thong tin khach hang ---
     sheet.cell(row=5, column=2).value = "Kinh gui: " + str(ttkh.get("ten", ""))

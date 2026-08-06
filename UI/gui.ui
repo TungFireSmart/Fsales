@@ -419,19 +419,6 @@ border-color: rgb(0, 170, 0);</string>
      <string>Tìm theo số điện thoại, số báo giá, tên KH</string>
     </property>
    </widget>
-   <widget class="QPushButton" name="but_chat">
-    <property name="geometry">
-     <rect>
-      <x>814</x>
-      <y>550</y>
-      <width>131</width>
-      <height>31</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Chat với Anna</string>
-    </property>
-   </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">

@@ -4,7 +4,9 @@ import sys
 import re
 import unicodedata
 import time
+import threading
 import mysql.connector
+import mysql.connector.pooling
 import requests
 import datetime
 import openpyxl
@@ -17,10 +19,53 @@ db_config = {
     'user': 'firesmart',
     'password': '123@123a',
     'database': 'fs_mrb',
-    'connection_timeout': 3  # ⏱ Giới hạn timeout 3 giây
+    'connection_timeout': 5,
+    # TODO(S3): chuyển credential ra config ngoài repo — xem VIEC-CAN-LAM.md
 }
 
-def _connect():
+# =====================================================================
+#  CONNECTION POOL  (thêm 6/8/2026)
+# ---------------------------------------------------------------------
+#  TRƯỚC ĐÂY: mỗi câu lệnh SQL mở một kết nối MySQL mới rồi đóng ngay.
+#  Toàn app có ~385 lượt gọi SQL ⇒ 385 lần bắt tay TCP + xác thực qua
+#  Internet tới db.fs.rsa.vn. Một màn hình 20 query = 20 lần bắt tay.
+#  Đây là nguyên nhân chính khiến app chậm.
+#
+#  BÂY GIỜ: giữ sẵn một pool kết nối và dùng lại. Lần gọi đầu tốn tiền
+#  bắt tay, các lần sau gần như tức thì.
+#
+#  Chữ ký sql_all / sql_one / sql_commit GIỮ NGUYÊN — không file nào
+#  phải sửa theo.
+# =====================================================================
+
+POOL_SIZE = 5          # đủ cho 1 app desktop; MySQL mặc định cho phép nhiều hơn
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _build_pool():
+    """Tạo pool. Lỗi thì trả None để rơi về kiểu kết nối trực tiếp."""
+    try:
+        return mysql.connector.pooling.MySQLConnectionPool(
+            pool_name="fsales_pool",
+            pool_size=POOL_SIZE,
+            pool_reset_session=True,
+            host=db_config['host'],
+            port=db_config['port'],
+            user=db_config['user'],
+            password=db_config['password'],
+            database=db_config['database'],
+            connection_timeout=db_config.get("connection_timeout", 5),
+            autocommit=False,
+            use_pure=True,          # 🔥 BẮT BUỘC (giữ như cũ)
+        )
+    except Exception as e:
+        print("Không tạo được connection pool, dùng kết nối trực tiếp:", e)
+        return None
+
+
+def _direct_connect():
+    """Kết nối trực tiếp — đường lui khi pool hỏng hoặc cạn."""
     return mysql.connector.connect(
         host=db_config['host'],
         port=db_config['port'],
@@ -28,23 +73,97 @@ def _connect():
         password=db_config['password'],
         database=db_config['database'],
         connection_timeout=db_config.get("connection_timeout", 5),
-
-        # 🔥 BẮT BUỘC
-        use_pure=True
+        use_pure=True,
     )
+
+
+def _connect():
+    """
+    Lấy một kết nối. Ưu tiên pool; pool hỏng/cạn thì kết nối trực tiếp.
+
+    Gọi .close() trên kết nối lấy từ pool KHÔNG đóng socket — nó trả
+    kết nối về pool. Nên toàn bộ code cũ dùng `db.close()` vẫn đúng.
+    """
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                _pool = _build_pool()
+
+    if _pool is not None:
+        try:
+            conn = _pool.get_connection()
+            # Kết nối nằm không lâu có thể đã bị server ngắt (wait_timeout).
+            # ping(reconnect=True) dựng lại mà không ném lỗi lên tầng trên.
+            try:
+                conn.ping(reconnect=True, attempts=2, delay=0)
+            except Exception:
+                pass
+            return conn
+        except Exception as e:
+            print("Pool cạn hoặc lỗi, dùng kết nối trực tiếp:", e)
+
+    return _direct_connect()
+
+
+# ---------------------------------------------------------------------
+#  PHÂN LOẠI LỖI
+#  Trước đây MỌI lỗi đều bị thử lại 3 lần. Một câu SQL sai cú pháp cũng
+#  bị chạy lại 3 lần ⇒ đơ giao diện ~10 giây rồi mới báo lỗi.
+#  Giờ chỉ thử lại khi lỗi thật sự do KẾT NỐI.
+# ---------------------------------------------------------------------
+
+# Mã lỗi MySQL đáng thử lại: mất kết nối / server biến mất / hết chỗ
+_RETRY_ERRNOS = {2002, 2003, 2006, 2013, 2055, 1040, 1053, 1205, 1213}
+
+
+def _nen_thu_lai(e) -> bool:
+    errno = getattr(e, "errno", None)
+    if errno in _RETRY_ERRNOS:
+        return True
+    if isinstance(e, (mysql.connector.errors.InterfaceError,
+                      mysql.connector.errors.OperationalError)):
+        return True
+    if isinstance(e, (mysql.connector.errors.ProgrammingError,
+                      mysql.connector.errors.IntegrityError,
+                      mysql.connector.errors.DataError)):
+        return False          # lỗi do câu lệnh — thử lại cũng vô ích
+    msg = str(e).lower()
+    return any(k in msg for k in
+               ("can't connect", "lost connection", "gone away",
+                "timed out", "broken pipe", "not connected"))
+
+
+def _dong(cur, db):
+    """Đóng cursor + trả kết nối về pool. Không bao giờ ném lỗi."""
+    try:
+        if cur is not None:
+            cur.close()
+    except Exception:
+        pass
+    try:
+        if db is not None:
+            db.close()
+    except Exception:
+        pass
+
 
 def sql_all(query, params=None, max_retry=3, default=None):
     retry = 0
     while True:
+        db = cur = None
         try:
             db = _connect()
             cur = db.cursor()
             cur.execute(query, params)
             rows = cur.fetchall()
-            cur.close()
-            db.close()
             return rows
         except Exception as e:
+            if not _nen_thu_lai(e):
+                print("sql_all error (không thử lại):", e)
+                if default is not None:
+                    return default
+                raise
             retry += 1
             print(f"sql_all error (retry {retry}/{max_retry}):", e)
             if retry >= max_retry:
@@ -52,20 +171,32 @@ def sql_all(query, params=None, max_retry=3, default=None):
                     return default
                 raise
             time.sleep(0.5)
+        finally:
+            _dong(cur, db)
 
 
 def sql_one(query, params=None, max_retry=3, default=None):
     retry = 0
     while True:
+        db = cur = None
         try:
             db = _connect()
             cur = db.cursor()
             cur.execute(query, params)
             row = cur.fetchone()
-            cur.close()
-            db.close()
+            # Phải đọc hết kết quả, nếu không kết nối trả về pool sẽ bẩn
+            # và câu lệnh sau bị "Unread result found".
+            try:
+                cur.fetchall()
+            except Exception:
+                pass
             return row
         except Exception as e:
+            if not _nen_thu_lai(e):
+                print("sql_one error (không thử lại):", e)
+                if default is not None:
+                    return default
+                raise
             retry += 1
             print(f"sql_one error (retry {retry}/{max_retry}):", e)
             if retry >= max_retry:
@@ -73,17 +204,19 @@ def sql_one(query, params=None, max_retry=3, default=None):
                     return default
                 raise
             time.sleep(0.5)
+        finally:
+            _dong(cur, db)
+
 
 def sql_commit(query, params=None, max_retry=3):
     retry = 0
     while True:
+        db = cur = None
         try:
             db = _connect()
             cur = db.cursor()
             cur.execute(query, params)
             db.commit()
-            cur.close()
-            db.close()
             return
         except Exception as e:
             msg = str(e)
@@ -91,11 +224,23 @@ def sql_commit(query, params=None, max_retry=3):
                 print("sql_commit integrity error:", e)
                 raise
 
+            try:
+                if db is not None:
+                    db.rollback()
+            except Exception:
+                pass
+
+            if not _nen_thu_lai(e):
+                print("sql_commit error (không thử lại):", e)
+                raise
+
             retry += 1
             print(f"sql_commit error (retry {retry}/{max_retry}):", e)
             if retry >= max_retry:
                 raise
             time.sleep(0.5)
+        finally:
+            _dong(cur, db)
 
 
 def ensure_audit_schema():
@@ -663,17 +808,14 @@ def save_excel(so_bg, user, phone, cty, thue=None):
 
 
 def header_label(user):
-    db = _connect()
-    cur = db.cursor()
-    cur.execute("""
+    # Dùng sql_one để đi qua pool + cơ chế retry chung (sửa 6/8/2026).
+    row = sql_one("""
         SELECT COUNT(*) FROM sale_lead
         WHERE YEAR(time_create) = YEAR(CURDATE())
         AND MONTH(time_create) = MONTH(CURDATE())
         AND nguoi_tao_lead = %s
-    """, (user,))
-    result = cur.fetchone()[0]
-    cur.close()
-    db.close()
+    """, (user,), default=(0,))
+    result = row[0] if row else 0
     return f"Tháng này bạn đã tạo ra {result} cơ hội."
 
 
@@ -702,3 +844,76 @@ def save_price_list(price_list):
             saved = False
             time.sleep(0.5)
             print(e1)
+
+
+# =====================================================================
+# KHẢO SÁT HIỆN TRƯỜNG — sale_lead_khao_sat
+# =====================================================================
+KHAO_SAT_FIELDS = [
+    # ===== A. Thông tin chung công trình + cơ sở (v5 mở rộng PC01) =====
+    "kh_cty", "kh_mst", "ten_cong_trinh", "dia_chi", "cong_nang_k",
+    "nam_hoat_dong", "nganh_nghe",
+    "hinh_thuc_so_huu", "trang_thai", "thanh_phan_kt",
+    "co_quan_cap_tren", "nguoi_quan_ly", "quan_ly_sdt",
+    "dai_dien_pl_ten", "dai_dien_pl_sdt",
+    "ct_doc_lap", "thuoc_dm_nguyhiem", "thuoc_dm_thamduyet",
+    # ===== B. Quy mô + Kỹ thuật + Giao thông CC =====
+    "dt_san_tong", "dt_xay_dung", "cao_pccc",
+    "so_tang_noi", "so_tang_ham", "so_phong",
+    "dai_nha", "rong_nha", "kc_ct_ke_ben",
+    "bac_chiu_lua", "cap_nhc", "hang_nguy_hiem",
+    "so_nguoi_du_kien", "so_chau",
+    "dgt_rong", "dgt_cao", "bai_do_xe_cc", "xe_cc_tiep_can",
+    # ===== C. Hạ tầng + Hệ thống PCCC sẵn có =====
+    "nguon_nuoc", "nguon_nuoc_json", "nguon_nuoc_chi_tiet",
+    "so_be_cc", "khoi_tich_be", "vi_tri_be",
+    "so_tru_cc", "vi_tri_tru",
+    "nguon_dien", "co_may_phat",
+    "mp_cong_suat_kva", "mp_thoi_gian_chay_h",
+    "truyen_tin_da_lap", "co_xe_chua_chay", "phuong_tien_cc_text",
+    "he_thong_sn_json",
+    # ===== D. Pháp lý + Văn bản + Tài liệu =====
+    "vb_thamduyet_so", "vb_thamduyet_ngay", "vb_thamduyet_cq",
+    "vb_nghiemthu_so", "vb_nghiemthu_ngay", "vb_nghiemthu_cq",
+    "bh_cong_ty", "bh_so_hd", "bh_ngay_het_han",
+    "hd_bao_duong", "hd_bao_duong_ncc",
+    "tai_lieu_json", "lich_su_pccc", "bkl_drive_info",
+    # ===== E. Thương mại + Đánh giá sales =====
+    "yc_kh", "ngan_sach", "deadline",
+    "nguoi_quyet_dinh", "qd_ten", "qd_chuc_vu", "qd_sdt",
+    "lien_he_ky_thuat", "lh_ten", "lh_chuc_vu", "lh_sdt",
+    "doi_thu_da_bao_gia", "doi_thu_ten",
+    "danh_gia_sales", "buoc_tiep_theo",
+    # ===== F. Khảo sát + Đội PCCC cơ sở =====
+    "ngay_khao_sat", "nguoi_khao_sat",
+    "nguoi_tiep_don", "td_ten", "td_chuc_vu", "td_sdt",
+    "doi_tong_doi_vien", "doi_truong_ten", "doi_truong_sdt",
+    "doi_tong_doi_vien", "doi_truong_ten", "doi_truong_sdt",
+    "so_nguoi_pccc",
+    # ===== G. Khối nhà + Khu vực ngoài nhà (JSON snapshot) =====
+    "khoi_nha_json", "khu_vuc_json",
+]
+
+
+def doc_khao_sat(lead_id):
+    """Đọc khảo sát của 1 lead. Trả dict hoặc {} nếu chưa có."""
+    cols = ", ".join(KHAO_SAT_FIELDS)
+    row = sql_one(
+        f"SELECT {cols} FROM sale_lead_khao_sat WHERE lead_id = %s",
+        (lead_id,))
+    if not row:
+        return {}
+    return dict(zip(KHAO_SAT_FIELDS, row))
+
+
+def luu_khao_sat(lead_id, data: dict):
+    """Upsert khảo sát (INSERT ON DUPLICATE KEY UPDATE)."""
+    cols = ["lead_id"] + KHAO_SAT_FIELDS
+    placeholders = ", ".join(["%s"] * len(cols))
+    updates = ", ".join(f"{c}=VALUES({c})" for c in KHAO_SAT_FIELDS)
+    values = [lead_id] + [data.get(f) for f in KHAO_SAT_FIELDS]
+    sql_commit(
+        f"INSERT INTO sale_lead_khao_sat ({', '.join(cols)}) "
+        f"VALUES ({placeholders}) "
+        f"ON DUPLICATE KEY UPDATE {updates}",
+        values)

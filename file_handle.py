@@ -43,6 +43,106 @@ def authenticate_drive_with_client_info():
     return service
 
 
+def upload_file_path(file_path):
+    """Upload file đã có sẵn (KHÔNG mở dialog) — dùng cho tự động đính kèm
+    báo giá PCCC vào lead. Trả format "tenfile|file_id|mime" giống upload_file().
+    Trả None nếu lỗi."""
+    if not file_path or not os.path.exists(file_path):
+        return None
+    file_name = os.path.basename(file_path)
+    mime_type, _ = mimetypes.guess_type(file_path)
+    mime_type = mime_type or 'application/octet-stream'
+    service = authenticate_drive_with_client_info()
+    media = MediaFileUpload(file_path, mimetype=mime_type, resumable=True)
+    try:
+        uploaded = service.files().create(
+            body={'name': file_name}, media_body=media, fields='id').execute()
+    except Exception as e:
+        print("Loi upload file PCCC:", e)
+        return None
+    file_id = uploaded.get('id')
+    if not file_id:
+        return None
+    return f"{file_name}|{file_id}|{mime_type}"
+
+
+def attach_file_to_lead(lead_id, file_path):
+    """End-to-end: upload + append vào sale_lead.file. Trả True/False."""
+    info = upload_file_path(file_path)
+    if not info:
+        return False
+    old = misc.sql_one("SELECT file FROM sale_lead WHERE lead_id = %s",
+                       (lead_id,))
+    if old and old[0]:
+        file_value = old[0] + '@@' + info
+    else:
+        file_value = info
+    misc.sql_commit("UPDATE sale_lead SET file = %s WHERE lead_id = %s",
+                    (file_value, lead_id))
+    return True
+
+
+def get_or_create_lead_folder(lead_id):
+    """Tạo folder Lead_<id> trong Google Drive (nếu chưa có).
+    Trả folder_id (str)."""
+    service = authenticate_drive_with_client_info()
+    folder_name = f"Lead_{lead_id}"
+    # Search xem folder đã tồn tại chưa
+    q = (f"mimeType='application/vnd.google-apps.folder' "
+         f"and name='{folder_name}' and trashed=false")
+    try:
+        results = service.files().list(q=q, fields="files(id, name)",
+                                       pageSize=10).execute()
+        items = results.get("files", [])
+        if items:
+            return items[0]["id"]
+    except Exception as e:
+        print("Loi search folder Drive:", e)
+    # Tạo mới
+    try:
+        folder = service.files().create(
+            body={"name": folder_name,
+                  "mimeType": "application/vnd.google-apps.folder"},
+            fields="id").execute()
+        return folder.get("id")
+    except Exception as e:
+        print("Loi tao folder Drive:", e)
+        return None
+
+
+def upload_file_to_lead_folder(lead_id, file_path, doc_key=""):
+    """Upload file vào folder Lead_<id>. Đính kèm doc_key vào tên file
+    để dễ phân biệt loại tài liệu. Trả "tenfile|file_id|mime" hoặc None."""
+    import os as _os
+    import mimetypes as _mt
+    from googleapiclient.http import MediaFileUpload as _MFU
+    if not file_path or not _os.path.exists(file_path):
+        return None
+    folder_id = get_or_create_lead_folder(lead_id)
+    if not folder_id:
+        # Fallback: upload không folder
+        return upload_file_path(file_path)
+    fname = _os.path.basename(file_path)
+    if doc_key:
+        # Prefix loại tài liệu vào tên: gp_xay_dung_<filename>
+        fname = f"{doc_key}_{fname}"
+    mime_type, _ = _mt.guess_type(file_path)
+    mime_type = mime_type or "application/octet-stream"
+    service = authenticate_drive_with_client_info()
+    media = _MFU(file_path, mimetype=mime_type, resumable=True)
+    try:
+        up = service.files().create(
+            body={"name": fname, "parents": [folder_id]},
+            media_body=media, fields="id").execute()
+    except Exception as e:
+        print("Loi upload to Lead folder:", e)
+        return None
+    fid = up.get("id")
+    if not fid:
+        return None
+    return f"{fname}|{fid}|{mime_type}"
+
+
 def upload_file():
     """
     Upload file lên Google Drive.

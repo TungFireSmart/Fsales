@@ -804,8 +804,9 @@ def classify_nhom(ten: str) -> dict:
             return {"nhom": "den", "loai": "den_exit"}
         return {"nhom": "den", "loai": "den_sc"}
 
-    # Báo cháy độc lập
-    if has("độc lập"):
+    # Báo cháy độc lập — CHỈ áp dụng cho ĐẦU BÁO độc lập, không cho
+    # chuông/đèn/nút ấn (kể cả khi tên có chữ "độc lập")
+    if has("độc lập") and "đầu báo" in s:
         loai = "doc_lap_nhiet" if "nhiệt" in s else "doc_lap_khoi"
         return {"nhom": "bao_chay_doc_lap", "loai": loai}
 
@@ -1072,11 +1073,36 @@ def phan_tich(cn_k: str, i: dict) -> dict:
                       "can": f"QCVN 10, Bảng A.1 (mục {cn['muc']})",
                       "nhom": "bao_chay"})
 
-    # --- Truyền tin báo cháy (bắt buộc khi có trang bị báo cháy) ---
-    if bc_state != "khong":
+    # --- Truyền tin báo cháy: bắt buộc khi cơ sở thuộc Phụ lục I NĐ 105 ---
+    try:
+        _pl_check = tra_phu_luc_nd105(cn_k, i)
+        truyen_tin_bat_buoc = bool(_pl_check.get("thuoc_pl1"))
+    except Exception:
+        truyen_tin_bat_buoc = (bc_state != "khong")
+
+    # LOGIC MỚI: nếu bắt buộc truyền tin mà chưa có báo cháy gì
+    # → ép lên báo cháy ĐỘC LẬP (vì truyền tin cần đầu vào tín hiệu)
+    if truyen_tin_bat_buoc and bc_state in ("khong", "khuyen_nghi"):
+        bc_state = "doc_lap"
+        # Loại bỏ item bao_chay/bao_chay_doc_lap cũ rồi append item mới
+        items = [x for x in items
+                 if x["nhom"] not in ("bao_chay", "bao_chay_doc_lap")]
+        items.append({
+            "ht": "Thiết bị báo cháy độc lập "
+                  "(bắt buộc do yêu cầu truyền tin)",
+            "req": True, "mode": "doc_lap",
+            "dk": "Cơ sở thuộc Phụ lục I NĐ 105/2025 → bắt buộc thiết bị "
+                  "truyền tin báo cháy → cần báo cháy độc lập tối thiểu "
+                  "để cấp đầu vào tín hiệu cho truyền tin",
+            "can": "NĐ 105/2025/NĐ-CP Điều 27 + QCVN 10:2025/BCA "
+                   f"Bảng A.1 (mục {cn['muc']})",
+            "nhom": "bao_chay_doc_lap"})
+
+    if truyen_tin_bat_buoc:
         items.append({"ht": "Thiết bị truyền tin báo cháy (kết nối CSDL PCCC)",
                       "req": True,
-                      "dk": "bắt buộc với cơ sở thuộc diện quản lý PCCC (Phụ lục I) · hoàn thành chậm nhất 01/7/2027",
+                      "dk": "bắt buộc với cơ sở thuộc diện quản lý PCCC "
+                            "(Phụ lục I) · hoàn thành chậm nhất 01/7/2027",
                       "can": "NĐ 105/2025/NĐ-CP, Điều 27",
                       "nhom": "truyen_tin"})
 
@@ -1198,6 +1224,9 @@ def build_slots(items: list, i: dict, totals: dict = None) -> list:
             if totals["nhiet"] > 0:
                 add("Đầu báo nhiệt độc lập", "bao_chay_doc_lap", "doc_lap_nhiet",
                     totals["nhiet"])
+            # Mỗi tầng 1 bộ Tổ hợp chuông đèn nút ấn (kể cả khi dùng độc lập)
+            add("Tổ hợp chuông đèn, nút ấn", "bao_chay_doc_lap",
+                "chuong_den", floors)
 
         elif nhom == "truyen_tin":
             add("Thiết bị truyền tin báo cháy", "truyen_tin", None, 1)
@@ -1324,19 +1353,76 @@ def build_slots(items: list, i: dict, totals: dict = None) -> list:
         nhom_bom = "hong_nuoc" if has_hong else "chua_chay"
         parent_bom = ("Hệ thống cấp nước chữa cháy"
                       if has_hong else "Hệ thống chữa cháy tự động")
+
+        # =================================================================
+        # TRẠM BƠM CHỮA CHÁY (TCVN 7336 mục 5.8) — 3 bơm + 1 tủ điện
+        #   Bơm chính: điện liền/rời trục (Q,H,N từ tinh_cum_bom)
+        #   Bơm dự phòng: bắt buộc theo 5.8.2, cùng Q-H với chính
+        #                  Mặc định DIESEL (5.8.4); user có thể đổi sang điện
+        #   Bơm bù áp (jockey): CHỈ khi có sprinkler — duy trì áp đường ống
+        # =================================================================
+        Q_chinh = bom["Q_m3h"]
+        H_chinh = bom["H_m"]
+        N_chinh = bom["N_dv_kw"]
+        loai_bom_dp = (i.get("loai_bom_dp") or "diesel").lower()
+
+        # 1. Bơm chính
+        label_chinh = (f"Bơm chữa cháy CHÍNH (điện) ≥ Q {Q_chinh:.0f} m³/h, "
+                       f"H {H_chinh:.0f} m, N {N_chinh} kW")
         slots.append({
-            "label": bom["label_bom"],
-            "nhom": nhom_bom, "loai": "cum_bom",
+            "label": label_chinh,
+            "nhom": nhom_bom, "loai": "cum_bom_chinh",
             "sl": 1, "parent_ht": parent_bom,
-            "fixed": True, "fixed_ten": bom["label_bom"],
-            "fixed_gia": 1, "fixed_dv": "Cụm",
+            "fixed": True, "fixed_ten": label_chinh,
+            "fixed_gia": 1, "fixed_dv": "Bơm",
             "bom_info": bom,
+            "bom_role": "chinh",
         })
+
+        # 2. Bơm dự phòng (bắt buộc theo TCVN 7336 5.8.2)
+        if loai_bom_dp == "diesel":
+            label_dp = (f"Bơm chữa cháy DỰ PHÒNG (diesel) ≥ Q {Q_chinh:.0f} m³/h, "
+                        f"H {H_chinh:.0f} m, N {N_chinh*1.2:.0f} kW")
+            label_dp_dv = "Bơm"
+        else:
+            label_dp = (f"Bơm chữa cháy DỰ PHÒNG (điện) ≥ Q {Q_chinh:.0f} m³/h, "
+                        f"H {H_chinh:.0f} m, N {N_chinh} kW")
+            label_dp_dv = "Bơm"
         slots.append({
-            "label": "Tủ điện điều khiển cụm bơm",
+            "label": label_dp,
+            "nhom": nhom_bom, "loai": "cum_bom_dp",
+            "sl": 1, "parent_ht": parent_bom,
+            "fixed": True, "fixed_ten": label_dp,
+            "fixed_gia": 1, "fixed_dv": label_dp_dv,
+            "bom_info": bom,
+            "bom_role": "dp",
+            "loai_bom_dp": loai_bom_dp,
+        })
+
+        # 3. Bơm bù áp (jockey) — CHỈ khi có sprinkler
+        if has_sprk_cc:
+            Q_jockey = 1.5  # m³/h (chuẩn quốc tế)
+            H_jockey = H_chinh + 5  # +5m để duy trì áp
+            label_ja = (f"Bơm bù áp (jockey) ≥ Q {Q_jockey} m³/h, "
+                        f"H {H_jockey:.0f} m")
+            slots.append({
+                "label": label_ja,
+                "nhom": nhom_bom, "loai": "cum_bom_bu_ap",
+                "sl": 1, "parent_ht": parent_bom,
+                "fixed": True, "fixed_ten": label_ja,
+                "fixed_gia": 1, "fixed_dv": "Bơm",
+                "bom_info": {"Q_m3h": Q_jockey, "H_m": H_jockey,
+                             "N_dv_kw": 2.2},
+                "bom_role": "bu_ap",
+            })
+
+        # 4. Tủ điện điều khiển trạm bơm
+        slots.append({
+            "label": "Tủ điện điều khiển trạm bơm chữa cháy",
             "nhom": nhom_bom, "loai": "tu_dien_bom",
             "sl": 1, "parent_ht": parent_bom,
-            "fixed": True, "fixed_ten": "Tủ điện điều khiển cụm bơm",
+            "fixed": True,
+            "fixed_ten": "Tủ điện điều khiển trạm bơm chữa cháy",
             "fixed_gia": 1, "fixed_dv": "Tủ",
         })
 
@@ -2606,6 +2692,91 @@ def normalize_model(s: str) -> str:
     for ch in ("-", "_", " ", "\t", "\n"):
         out = out.replace(ch, "")
     return out
+
+
+
+
+# =====================================================================
+# GỢI Ý BƠM TỪ bom_catalog.json (Affetti + các hãng khác nếu có)
+# =====================================================================
+_BOM_CATALOG_CACHE = None
+
+
+def _load_bom_catalog():
+    """Load bom_catalog.json (cached)."""
+    global _BOM_CATALOG_CACHE
+    if _BOM_CATALOG_CACHE is not None:
+        return _BOM_CATALOG_CACHE
+    import json, os
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        here = os.getcwd()
+    p = os.path.join(here, "bom_catalog.json")
+    if not os.path.exists(p):
+        _BOM_CATALOG_CACHE = {}
+        return _BOM_CATALOG_CACHE
+    try:
+        with open(p, encoding="utf-8") as f:
+            _BOM_CATALOG_CACHE = json.load(f) or {}
+    except Exception:
+        _BOM_CATALOG_CACHE = {}
+    return _BOM_CATALOG_CACHE
+
+
+def goi_y_bom(q_m3h: float, h_m: float, n_kw_min: float = 0,
+              loai_bom: str = "lien_truc_2900",
+              top_n: int = 3, exclude_bu_ap: bool = True) -> list:
+    """Gợi ý top N bơm thỏa Q-H-N từ bom_catalog.json.
+
+    Tham số:
+      q_m3h      — Lưu lượng cần thiết (m³/h)
+      h_m        — Cột áp cần thiết (m)
+      n_kw_min   — Công suất tối thiểu (kW) — chỉ filter nếu > 0
+      loai_bom   — Nhóm bơm ưu tiên: 'lien_truc_2900' / 'roi_truc_2900'
+                   / 'diesel_3000' / 'bu_ap' / 'da_tang'.
+                   Đặt 'auto' để tự chọn theo công suất (≤37kW: liền trục,
+                   >37kW: rời trục).
+      top_n      — Số lượng gợi ý trả về (mặc định 3, sort theo giá tăng)
+      exclude_bu_ap — Loại bơm bù áp ra khỏi gợi ý chính (mặc định True)
+
+    Trả: list dict [{model, kw, q_min, q_max, h_min, h_max, gia, loai, hang}]
+    """
+    cat = _load_bom_catalog()
+    if not cat:
+        return []
+    hang = cat.get("_meta", {}).get("hang", "")
+
+    # Auto-chọn nhóm theo công suất
+    if loai_bom == "auto":
+        if n_kw_min and n_kw_min > 37:
+            loai_bom = "roi_truc_2900"
+        else:
+            loai_bom = "lien_truc_2900"
+
+    candidates = []
+    for key, items in cat.items():
+        if not isinstance(items, list):
+            continue
+        if exclude_bu_ap and key == "bu_ap":
+            continue
+        for x in items:
+            # Filter Q-H-N
+            if x["q_max"] < q_m3h:
+                continue
+            if x["h_max"] < h_m:
+                continue
+            if n_kw_min and x.get("kw") and x["kw"] < n_kw_min:
+                continue
+            x2 = dict(x)
+            x2["loai"] = key
+            x2["hang"] = hang
+            x2["uu_tien"] = 1 if key == loai_bom else 2
+            candidates.append(x2)
+
+    # Sort: ưu tiên loai_bom đúng, sau đó giá thấp
+    candidates.sort(key=lambda x: (x["uu_tien"], x["gia"]))
+    return candidates[:top_n]
 
 
 _BAO_CHAY_GROUPS_RAW = {

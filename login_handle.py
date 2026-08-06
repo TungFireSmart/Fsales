@@ -27,6 +27,13 @@ def check_saved_login(main):
                     lambda msg: on_login_error(main, msg)
                 )
 
+                # ⚠️ PHẢI giữ tham chiếu (sửa 6/8/2026).
+                # `worker` là biến cục bộ: hết hàm này là Python có thể thu hồi
+                # nó cùng với `worker.signals`, trong khi luồng nền VẪN đang
+                # chạy → đối tượng QObject bị huỷ giữa chừng, và lần emit tiếp
+                # theo ném "wrapped C/C++ object ... has been deleted".
+                main._login_worker = worker
+
                 QThreadPool.globalInstance().start(worker)
 
     except Exception as e:
@@ -34,15 +41,22 @@ def check_saved_login(main):
 
 
 def on_login_success(main, user_power):
-    main.user_power = user_power
-
-    # ⚠️ POST LOGIN PHẢI CHẠY TRONG MAIN THREAD
-    QTimer.singleShot(0, main.post_login_setup)
+    # Cửa sổ có thể đã đóng trong lúc chờ DB → thao tác lên nó sẽ ném
+    # RuntimeError. Lúc đó chẳng còn gì để làm, bỏ qua là đúng.
+    try:
+        main.user_power = user_power
+        # ⚠️ POST LOGIN PHẢI CHẠY TRONG MAIN THREAD
+        QTimer.singleShot(0, main.post_login_setup)
+    except RuntimeError:
+        pass
 
 
 def on_login_error(main, message):
     print("❌ Auto login thất bại:", message)
-    main.logged_in = False
+    try:
+        main.logged_in = False
+    except RuntimeError:
+        pass
 
 
 def finish_login_from_db(self):

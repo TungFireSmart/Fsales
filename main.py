@@ -1,10 +1,12 @@
 import sys
 import re
 import json
+import random
 from pathlib import Path
 
-from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QTableWidgetItem, QMessageBox
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QPushButton, QTableWidgetItem,
+                             QMessageBox, QProgressDialog)
+from PyQt6.QtCore import Qt, QTimer, QThreadPool
 from PyQt6.QtGui import QColor, QBrush
 
 from UI.gui import Ui_MainWindow
@@ -19,11 +21,23 @@ from login_handle import check_saved_login, handle_login, handle_logout
 from price_list_manager import PriceListManager
 from tu_van_pccc import TuVanPCCC
 
-# Phần AI
-from AI.ai_chat_window import AIChatWindow
-from greeting_service import generate_greeting
 from ui_theme import apply_ui_v2
-from auto_update import AutoUpdater
+from auto_update import AutoUpdater, UpdateDownloadWorker
+from version import APP_VERSION
+
+
+# Câu chào ở label_noti.
+# Trước 6/8/2026 do greeting_service.py sinh bằng LLM; đã gỡ module AI nên dùng
+# thẳng danh sách FALLBACK vốn có sẵn trong file đó — hành vi y hệt khi LLM lỗi.
+LOI_CHAO = [
+    "👋 Chào mừng bạn quay lại!",
+    "✨ Chúc bạn một ngày làm việc hiệu quả!",
+    "🚀 Sẵn sàng chốt đơn nào!",
+]
+
+
+def generate_greeting():
+    return random.choice(LOI_CHAO)
 
 
 LEAD_STATUS_ENUM = [
@@ -63,7 +77,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.uic = Ui_MainWindow()
         self.uic.setupUi(self)
-        self.app_version = '3.0.21'
+        self.app_version = APP_VERSION
         self.setWindowTitle(QApplication.translate("MainWindow", f"Fsale v{self.app_version}"))
         apply_ui_v2(self)
         self._set_version_label()
@@ -89,7 +103,6 @@ class MainWindow(QMainWindow):
         self.uic.text_password.textChanged.connect(self.login)
 
         self.uic.but_logout.clicked.connect(lambda: handle_logout(self))
-        self.uic.but_chat.clicked.connect(self.open_ai_chat)
 
         # Auto-update check shortly after startup (non-blocking UX)
         QTimer.singleShot(1500, self.check_auto_update)
@@ -133,10 +146,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def open_ai_chat(self):
-        self.ai_chat = AIChatWindow(self, self.user_power)
-        self.ai_chat.show()
-
     def open_tu_van_pccc(self):
         """Mở cửa sổ Tư vấn & Báo giá PCCC (QCVN 10:2025/BCA)."""
         try:
@@ -146,17 +155,64 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Lỗi mở Tư vấn PCCC", str(e))
 
     def _run_update(self, info: dict):
+        """
+        Tải bộ cài ở LUỒNG NỀN rồi mới chạy.
+        Trước 6/8/2026 việc tải ~70 MB chạy thẳng trên luồng giao diện nên
+        app đơ suốt thời gian tải; người dùng tưởng treo, tắt đi giữa chừng
+        làm file tải dở và bộ cài hỏng.
+        """
         app_dir = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
-        updater = AutoUpdater(str(app_dir), self.app_version)
-        self.setEnabled(False)
-        QApplication.processEvents()
+        self._updater = AutoUpdater(str(app_dir), self.app_version)
+
+        self._update_dialog = QProgressDialog(
+            'Đang tải bản cập nhật...', 'Huỷ', 0, 100, self)
+        self._update_dialog.setWindowTitle('Cập nhật FSales')
+        self._update_dialog.setMinimumDuration(0)
+        self._update_dialog.setAutoClose(False)
+        self._update_dialog.setValue(0)
+
+        worker = UpdateDownloadWorker(self._updater, info)
+        worker.signals.progress.connect(self._on_update_progress)
+        worker.signals.done.connect(self._on_update_downloaded)
+        worker.signals.error.connect(self._on_update_error)
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_update_progress(self, da_tai: int, tong: int):
         try:
-            installer = updater.download_installer(info['installer_url'])
-            updater.launch_installer(installer)
+            if tong > 0:
+                self._update_dialog.setValue(int(da_tai * 100 / tong))
+                self._update_dialog.setLabelText(
+                    f'Đang tải bản cập nhật... {da_tai / 1048576:.0f}/{tong / 1048576:.0f} MB')
+            else:
+                self._update_dialog.setLabelText(
+                    f'Đang tải bản cập nhật... {da_tai / 1048576:.0f} MB')
+        except Exception:
+            pass
+
+    def _on_update_downloaded(self, installer_path: str):
+        try:
+            self._update_dialog.close()
+        except Exception:
+            pass
+        try:
+            self._updater.launch_installer(installer_path)
+            QMessageBox.information(
+                self, 'Cập nhật FSales',
+                'Đã tải xong. FSales sẽ đóng lại, cài bản mới rồi tự mở lại.\n'
+                'Quá trình này mất khoảng 1–2 phút, xin đừng tắt máy.')
             QApplication.quit()
         except Exception as e:
-            self.setEnabled(True)
-            QMessageBox.warning(self, 'Cập nhật FSales', f'Không thể chạy bộ cài cập nhật: {e}')
+            QMessageBox.warning(self, 'Cập nhật FSales',
+                                f'Không thể chạy bộ cài cập nhật: {e}')
+
+    def _on_update_error(self, msg: str):
+        try:
+            self._update_dialog.close()
+        except Exception:
+            pass
+        QMessageBox.warning(self, 'Cập nhật FSales',
+                            f'Tải bản cập nhật thất bại:\n{msg}\n\n'
+                            'Bạn có thể tiếp tục dùng bản hiện tại và thử lại sau.')
 
     def check_update_manual(self):
         try:
@@ -1019,8 +1075,9 @@ class MainWindow(QMainWindow):
 
 
 if __name__ == "__main__":
-    from PyQt6.QtCore import QTimer
-
+    # QTimer đã import ở đầu file (6/8/2026). Trước đây chỉ import ở đây,
+    # nghĩa là main.py chỉ chạy được khi là __main__ — import nó ở chỗ khác
+    # là NameError ngay tại MainWindow.__init__.
     app = QApplication(sys.argv)
     load_global_stylesheet(app)
 

@@ -17,6 +17,15 @@ hidden_imports += collect_submodules("mysql.connector")
 hidden_imports += collect_submodules("docx")
 hidden_imports += ["docx"]
 
+# === PCCC consulting / survey modules imported dynamically ===
+hidden_imports += [
+    "version",
+    "khao_sat_helpers",
+    "khao_sat_data",
+    "bien_ban_khao_sat",
+    "mau_pccc",
+]
+
 a = Analysis(
     ["main.py"],
     pathex=["."],
@@ -31,6 +40,7 @@ a = Analysis(
         ("assets/logo_bach_khoa.png", "assets"),
         ("styles/app.qss", "styles"),
         ("update_config.json", "."),
+        ("bom_catalog.json", "."),
 
         # === EXCEL QUOTE TEMPLATES ===
         ("bao_gia_mau.xlsx", "."),

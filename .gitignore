@@ -46,3 +46,7 @@ fsales_chat_history.json
 # Local exported files
 downloaded_file.xlsx
 PXK-*.xlsx
+
+# Secrets bổ sung (6/8/2026)
+.env
+.env.*

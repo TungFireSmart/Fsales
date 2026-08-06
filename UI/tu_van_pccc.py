@@ -49,9 +49,12 @@ class Ui_TuVanPCCC_Window(object):
 
         self.cbo_cong_nang = QtWidgets.QComboBox(parent=self.gb_ct)
         self.cbo_cong_nang.setObjectName("cbo_cong_nang")
-        self.cbo_cong_nang.setMinimumSize(QtCore.QSize(0, 32))
+        self.cbo_cong_nang.setMinimumSize(QtCore.QSize(0, 44))
         self.cbo_cong_nang.setSizeAdjustPolicy(
-            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContentsOnFirstShow)
+            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.cbo_cong_nang.setStyleSheet(
+            "QComboBox { padding: 6px 8px; font-size: 13px; }"
+            "QComboBox QAbstractItemView { padding: 4px; }")
         self.vl_ct.addWidget(self.cbo_cong_nang)
 
         self.form_ct = QtWidgets.QFormLayout()
@@ -132,22 +135,25 @@ class Ui_TuVanPCCC_Window(object):
         self.form_kh = QtWidgets.QFormLayout(self.gb_kh)
         self.form_kh.setObjectName("form_kh")
 
+        # Row 0: Tên công ty
+        self.lab_kh_cty = QtWidgets.QLabel(parent=self.gb_kh)
+        self.lab_kh_cty.setObjectName("lab_kh_cty")
+        self.form_kh.setWidget(0, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lab_kh_cty)
+        self.kh_cty = QtWidgets.QLineEdit(parent=self.gb_kh)
+        self.kh_cty.setMinimumSize(QtCore.QSize(0, 28))
+        self.kh_cty.setObjectName("kh_cty")
+        self.form_kh.setWidget(0, QtWidgets.QFormLayout.ItemRole.FieldRole, self.kh_cty)
+
+        # Row 1: Người liên hệ
         self.lab_kh_ten = QtWidgets.QLabel(parent=self.gb_kh)
         self.lab_kh_ten.setObjectName("lab_kh_ten")
-        self.form_kh.setWidget(0, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lab_kh_ten)
+        self.form_kh.setWidget(1, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lab_kh_ten)
         self.kh_ten = QtWidgets.QLineEdit(parent=self.gb_kh)
         self.kh_ten.setMinimumSize(QtCore.QSize(0, 28))
         self.kh_ten.setObjectName("kh_ten")
-        self.form_kh.setWidget(0, QtWidgets.QFormLayout.ItemRole.FieldRole, self.kh_ten)
+        self.form_kh.setWidget(1, QtWidgets.QFormLayout.ItemRole.FieldRole, self.kh_ten)
 
-        self.lab_kh_dc = QtWidgets.QLabel(parent=self.gb_kh)
-        self.lab_kh_dc.setObjectName("lab_kh_dc")
-        self.form_kh.setWidget(1, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lab_kh_dc)
-        self.kh_dc = QtWidgets.QLineEdit(parent=self.gb_kh)
-        self.kh_dc.setMinimumSize(QtCore.QSize(0, 28))
-        self.kh_dc.setObjectName("kh_dc")
-        self.form_kh.setWidget(1, QtWidgets.QFormLayout.ItemRole.FieldRole, self.kh_dc)
-
+        # Row 2: Điện thoại
         self.lab_kh_dt = QtWidgets.QLabel(parent=self.gb_kh)
         self.lab_kh_dt.setObjectName("lab_kh_dt")
         self.form_kh.setWidget(2, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lab_kh_dt)
@@ -156,13 +162,32 @@ class Ui_TuVanPCCC_Window(object):
         self.kh_dt.setObjectName("kh_dt")
         self.form_kh.setWidget(2, QtWidgets.QFormLayout.ItemRole.FieldRole, self.kh_dt)
 
+        # Row 3: Mã số thuế
+        self.lab_kh_mst = QtWidgets.QLabel(parent=self.gb_kh)
+        self.lab_kh_mst.setObjectName("lab_kh_mst")
+        self.form_kh.setWidget(3, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lab_kh_mst)
+        self.kh_mst = QtWidgets.QLineEdit(parent=self.gb_kh)
+        self.kh_mst.setMinimumSize(QtCore.QSize(0, 28))
+        self.kh_mst.setObjectName("kh_mst")
+        self.form_kh.setWidget(3, QtWidgets.QFormLayout.ItemRole.FieldRole, self.kh_mst)
+
+        # Row 4: Địa chỉ
+        self.lab_kh_dc = QtWidgets.QLabel(parent=self.gb_kh)
+        self.lab_kh_dc.setObjectName("lab_kh_dc")
+        self.form_kh.setWidget(4, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lab_kh_dc)
+        self.kh_dc = QtWidgets.QLineEdit(parent=self.gb_kh)
+        self.kh_dc.setMinimumSize(QtCore.QSize(0, 28))
+        self.kh_dc.setObjectName("kh_dc")
+        self.form_kh.setWidget(4, QtWidgets.QFormLayout.ItemRole.FieldRole, self.kh_dc)
+
+        # Row 5: V/v
         self.lab_kh_vv = QtWidgets.QLabel(parent=self.gb_kh)
         self.lab_kh_vv.setObjectName("lab_kh_vv")
-        self.form_kh.setWidget(3, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lab_kh_vv)
+        self.form_kh.setWidget(5, QtWidgets.QFormLayout.ItemRole.LabelRole, self.lab_kh_vv)
         self.kh_vv = QtWidgets.QLineEdit(parent=self.gb_kh)
         self.kh_vv.setMinimumSize(QtCore.QSize(0, 28))
         self.kh_vv.setObjectName("kh_vv")
-        self.form_kh.setWidget(3, QtWidgets.QFormLayout.ItemRole.FieldRole, self.kh_vv)
+        self.form_kh.setWidget(5, QtWidgets.QFormLayout.ItemRole.FieldRole, self.kh_vv)
 
         self.leftLayout.addWidget(self.gb_kh)
 
@@ -465,9 +490,11 @@ class Ui_TuVanPCCC_Window(object):
         self.lbl_nguoi.setText(_t("TuVanPCCC_Window", "Số người / chỗ ngồi:"))
         self.lbl_chau.setText(_t("TuVanPCCC_Window", "Số cháu (mầm non):"))
         self.gb_kh.setTitle(_t("TuVanPCCC_Window", "Thông tin khách hàng"))
-        self.lab_kh_ten.setText(_t("TuVanPCCC_Window", "Tên KH / công trình:"))
-        self.lab_kh_dc.setText(_t("TuVanPCCC_Window", "Địa chỉ:"))
+        self.lab_kh_cty.setText(_t("TuVanPCCC_Window", "Tên công ty:"))
+        self.lab_kh_ten.setText(_t("TuVanPCCC_Window", "Người liên hệ:"))
         self.lab_kh_dt.setText(_t("TuVanPCCC_Window", "Điện thoại:"))
+        self.lab_kh_mst.setText(_t("TuVanPCCC_Window", "Mã số thuế:"))
+        self.lab_kh_dc.setText(_t("TuVanPCCC_Window", "Địa chỉ:"))
         self.lab_kh_vv.setText(_t("TuVanPCCC_Window", "V/v:"))
         self.kh_vv.setText(_t("TuVanPCCC_Window", "Cung cấp lắp đặt hệ thống PCCC"))
         self.but_run.setText(_t("TuVanPCCC_Window", "⚡ Phân tích & lập báo giá"))
