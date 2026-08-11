@@ -13,15 +13,125 @@ import openpyxl
 from PyQt6.QtWidgets import QFileDialog
 import mysql.connector
 
-db_config = {
+# =====================================================================
+#  CREDENTIAL CSDL — ĐỌC TỪ NGOÀI MÃ NGUỒN (sửa 6/8/2026, việc S3)
+# ---------------------------------------------------------------------
+#  🔴 TUYỆT ĐỐI KHÔNG gõ mật khẩu vào file này.
+#  Trước 6/8/2026 mật khẩu MySQL production nằm cứng ở đây và bị git
+#  track ⇒ lộ trong toàn bộ lịch sử commit của một repo có remote GitHub,
+#  đồng thời bị PyInstaller nhúng vào .exe phát cho nhân viên.
+#
+#  Thứ tự tìm (dừng ở nơi đầu tiên có đủ thông tin):
+#    1. Biến môi trường  FSALES_DB_HOST / _PORT / _USER / _PASSWORD / _NAME
+#    2. fsales_config.json cạnh file .exe (hoặc cạnh main.py khi chạy mã nguồn)
+#    3. fsales_config.json trong thư mục _internal/ (bản đóng gói PyInstaller)
+#    4. %APPDATA%\FSales\fsales_config.json
+#
+#    5. Giá trị mặc định ngay dưới đây.
+#
+#  QUYẾT ĐỊNH 6/8/2026 (anh Tùng): GIỮ mật khẩu mặc định trong mã nguồn để
+#  app chạy được ngay, không phải phát kèm file config cho từng nhân viên.
+#  Anh Tùng đánh giá rủi ro chấp nhận được với repo hiện tại.
+#
+#  ⚠️ Hệ quả cần biết: mật khẩu này nằm trong lịch sử git và trong mọi bản
+#  `.exe` đã phát. Ai đọc được repo là kết nối được thẳng vào CSDL sản xuất.
+#  Nếu sau này repo chuyển sang public, hoặc có người nghỉ việc, thì phải
+#  đổi mật khẩu VÀ dùng cơ chế 1–4 ở trên (việc S3 trong VIEC-CAN-LAM.md).
+#
+#  Bốn đường đọc phía trên vẫn hoạt động — muốn ghi đè trên một máy cụ thể
+#  mà không sửa mã nguồn thì đặt biến môi trường FSALES_DB_PASSWORD hoặc
+#  thả file fsales_config.json cạnh exe. Mẫu: fsales_config.example.json
+# =====================================================================
+
+CONFIG_FILE_NAME = 'fsales_config.json'
+
+# Mặc định — dùng khi không có biến môi trường và không có file config.
+DB_MAC_DINH = {
     'host': 'db.fs.rsa.vn',
     'port': 3118,
     'user': 'firesmart',
     'password': '123@123a',
     'database': 'fs_mrb',
     'connection_timeout': 5,
-    # TODO(S3): chuyển credential ra config ngoài repo — xem VIEC-CAN-LAM.md
 }
+
+
+def _thu_muc_app():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _cac_duong_dan_config():
+    goc = _thu_muc_app()
+    duong_dan = [
+        os.path.join(goc, CONFIG_FILE_NAME),
+        os.path.join(goc, '_internal', CONFIG_FILE_NAME),
+    ]
+    appdata = os.environ.get('APPDATA')
+    if appdata:
+        duong_dan.append(os.path.join(appdata, 'FSales', CONFIG_FILE_NAME))
+    return duong_dan
+
+
+def _doc_config_db():
+    # --- 1) Biến môi trường ---
+    if os.environ.get('FSALES_DB_PASSWORD'):
+        return {
+            'host': os.environ.get('FSALES_DB_HOST', 'db.fs.rsa.vn'),
+            'port': int(os.environ.get('FSALES_DB_PORT', 3118)),
+            'user': os.environ.get('FSALES_DB_USER', 'firesmart'),
+            'password': os.environ['FSALES_DB_PASSWORD'],
+            'database': os.environ.get('FSALES_DB_NAME', 'fs_mrb'),
+            'connection_timeout': int(os.environ.get('FSALES_DB_TIMEOUT', 5)),
+        }, 'biến môi trường'
+
+    # --- 2..4) File config ---
+    import json as _json
+    for p in _cac_duong_dan_config():
+        if not os.path.exists(p):
+            continue
+        try:
+            with open(p, 'r', encoding='utf-8-sig') as f:
+                c = (_json.load(f) or {}).get('database', {})
+            if not c.get('password'):
+                continue
+            return {
+                'host': c.get('host', 'db.fs.rsa.vn'),
+                'port': int(c.get('port', 3118)),
+                'user': c.get('user', 'firesmart'),
+                'password': c['password'],
+                'database': c.get('database', 'fs_mrb'),
+                'connection_timeout': int(c.get('connection_timeout', 5)),
+            }, p
+        except Exception as e:
+            print(f"Đọc {p} lỗi: {e}")
+
+    # --- 5) Mặc định trong mã nguồn ---
+    return dict(DB_MAC_DINH), 'giá trị mặc định trong misc.py'
+
+
+# Không bao giờ ném lỗi lúc import: `import misc` nằm ở đầu main.py, ném ở
+# đây là app chết kèm traceback Python mà nhân viên không hiểu gì.
+try:
+    db_config, _nguon_config = _doc_config_db()
+    LOI_CONFIG = None
+except Exception as e:                     # phòng xa, không được để vỡ
+    db_config, _nguon_config = dict(DB_MAC_DINH), 'mặc định (lỗi khi đọc config)'
+    LOI_CONFIG = None
+    print(f"[misc] Đọc config lỗi, dùng mặc định: {e}")
+
+print(f"[misc] Lấy thông tin CSDL từ: {_nguon_config}")
+
+
+def kiem_tra_config():
+    """Trả về mô tả lỗi cấu hình, hoặc None nếu ổn.
+
+    Hiện luôn trả None vì đã có giá trị mặc định trong `DB_MAC_DINH`.
+    Giữ hàm này để `main.py` có sẵn chỗ báo lỗi nếu sau này bỏ mặc định đi
+    (việc S3) — lúc đó chỉ cần đổi ở đây, không phải sửa main.py.
+    """
+    return LOI_CONFIG
 
 # =====================================================================
 #  CONNECTION POOL  (thêm 6/8/2026)
@@ -340,6 +450,17 @@ AUTO_ASSIGN_FALLBACK_USERS = ['Hoàng Thị Thanh Nga', 'Nguyễn Ngọc Linh', 
 
 
 def is_user_busy(user):
+    """
+    CHỈ dùng để *ưu tiên* khi chia việc tự động (pick_auto_assign_user).
+
+    🔴 KHÔNG dùng hàm này để CHẶN người dùng làm gì cả. Luật "một nhân viên một
+    cơ hội" đã bị bỏ ngày 11/8/2026 (việc B7) vì nó khoá nhân viên vĩnh viễn —
+    xem chú thích trong main.py.nhan_viec(). Muốn giới hạn khối lượng việc thì
+    làm ở khâu chia việc, đừng chặn ở khâu nhận việc.
+
+    Lưu ý hàm này đọc cờ cache trong bảng `user`, có thể cũ. Cần số đúng tại
+    thời điểm gọi thì dùng refresh_user_busy() (nó tính lại rồi mới trả về).
+    """
     row = sql_one("SELECT check_busy FROM user WHERE full_name = %s", (user,), default=(0,))
     try:
         return int((row or [0])[0] or 0) == 1
@@ -352,8 +473,24 @@ def refresh_user_busy(user):
     if not user or user == 'waiting':
         return 0
 
+    # "Bận" = còn lead ĐÃ NHẬN nhưng CHƯA có báo giá.
+    #
+    # Trước 11/8/2026 câu đếm này không kiểm tra ds_bao_gia. Hệ quả: mọi lead đã
+    # báo giá xong mà khách không chốt vẫn bị tính là "việc chưa hoàn thành" —
+    # và vì rule tuổi đời ở main.py._normalize_and_refresh_lead_statuses tự đẩy
+    # chúng sang 'Cần cập nhật lại' (>3 ngày) rồi 'Đã quá 10 ngày' (>10 ngày),
+    # hai trạng thái nằm ngay trong danh sách dưới đây, nên nhân viên bị khoá
+    # không nhận được cơ hội mới và KHÔNG có đường thoát tự động.
+    #
+    # Đo thực tế 11/8/2026 (case Hoàng Thị Thanh Nga): 316 lead bị đếm là bận,
+    # trong đó 308 lead đã có báo giá, lead cũ nhất 398 ngày. Sau khi thêm điều
+    # kiện NOT EXISTS ds_bao_gia: còn 8.
+    # (Bài học 11/8/2026 — xem NHAT-KY-FSALES.md)
     row = sql_one(
-        "SELECT COUNT(*) FROM sale_lead WHERE phu_trach = %s AND check_delete != '1' AND TRIM(status) IN (%s, %s, %s, %s, %s, %s)",
+        "SELECT COUNT(*) FROM sale_lead l "
+        "WHERE l.phu_trach = %s AND l.check_delete != '1' "
+        "AND TRIM(l.status) IN (%s, %s, %s, %s, %s, %s) "
+        "AND NOT EXISTS (SELECT 1 FROM ds_bao_gia q WHERE q.lead_id = l.lead_id)",
         (
             user,
             'Đã nhận việc',

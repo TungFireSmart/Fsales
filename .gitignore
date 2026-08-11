@@ -22,9 +22,21 @@ build/
 dist/
 installer/
 *.spec
+# ⚠️ main.spec là file build CHÍNH — phải giữ, không được ignore.
+# 🔴 Chú thích PHẢI nằm trên dòng riêng. .gitignore KHÔNG hỗ trợ chú thích
+# cuối dòng: `!main.spec   # ...` bị hiểu là tên file có cả phần chú thích,
+# nên dòng phủ định không có tác dụng và `*.spec` vẫn nuốt main.spec.
+# (Bài học 11/8/2026 — đo bằng `git check-ignore -v --no-index main.spec`.)
+!main.spec
 *.pkg
 *.exe
 *.rar
+*.zip
+release/Fsales/
+release/Fsales-Bundle-Full/
+release/Fsales-FullDist/
+tools/
+# release/*.iss VẪN được track — đó là nguồn sự thật của bộ cài
 
 # Runtime/generated
 logs/
@@ -32,6 +44,11 @@ logs/
 _temp/
 _trash_*/
 hop_dong_out/
+backups/
+*.bak
+*.py.bak
+# file rác do script vá tự sinh (đã dọn 6/8/2026) — xem ghi chú về chú thích ở trên
+_patch*.py
 
 # Secrets / local credentials
 token_drive.pickle
@@ -50,3 +67,8 @@ PXK-*.xlsx
 # Secrets bổ sung (6/8/2026)
 .env
 .env.*
+
+# 🔴 Credential CSDL — KHÔNG BAO GIỜ commit (việc S3, 6/8/2026)
+fsales_config.json
+**/fsales_config.json
+!fsales_config.example.json

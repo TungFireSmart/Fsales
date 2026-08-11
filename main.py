@@ -194,16 +194,25 @@ class MainWindow(QMainWindow):
             self._update_dialog.close()
         except Exception:
             pass
+        # 🔴 THU TU BAT BUOC: hoi truoc → chay .bat sau → thoat ngay.
+        # Ban 3.0.22 goi launch_installer() TRUOC khi hien hop thoai, nen .bat
+        # bat dau dem PID trong luc app con song va anh Tung con chua bam OK.
+        # Bo cai chay khi Fsales.exe dang bi khoa ⇒ that bai.
+        # (Bai hoc 11/8/2026 — xem khoi chu thich dau auto_update.py.)
+        QMessageBox.information(
+            self, 'Cập nhật FSales',
+            'Đã tải xong. Bấm OK thì FSales sẽ đóng lại và tự cài bản mới.\n'
+            'Sẽ có một cửa sổ đen hiện lên rồi Windows hỏi quyền Administrator '
+            '— hãy bấm "Yes", nếu không thì không cài được.\n'
+            'Quá trình này mất khoảng 1–2 phút, xin đừng tắt máy.')
         try:
             self._updater.launch_installer(installer_path)
-            QMessageBox.information(
-                self, 'Cập nhật FSales',
-                'Đã tải xong. FSales sẽ đóng lại, cài bản mới rồi tự mở lại.\n'
-                'Quá trình này mất khoảng 1–2 phút, xin đừng tắt máy.')
-            QApplication.quit()
         except Exception as e:
             QMessageBox.warning(self, 'Cập nhật FSales',
-                                f'Không thể chạy bộ cài cập nhật: {e}')
+                                f'Không thể chạy bộ cài cập nhật: {e}\n\n'
+                                'Bạn có thể tiếp tục dùng bản hiện tại.')
+            return
+        QApplication.quit()
 
     def _on_update_error(self, msg: str):
         try:
@@ -284,7 +293,6 @@ class MainWindow(QMainWindow):
         self.uic.text_user.hide()
         self.uic.text_password.hide()
         self.uic.but_logout.setEnabled(True)
-        self.uic.but_co_hoi_moi.setEnabled(True)
         self.uic.but_tao_co_hoi.setEnabled(True)
 
         self.uic.label_username.setText(self.user)
@@ -295,12 +303,9 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"init audit schema error: {e}")
 
-        # Giới hạn hiển thị nút "Cơ hội mới" theo user
-        blocked_new_lead_users = {'Vương', 'Huệ', 'Đức'}
-        display_name = str(self.user or '').strip()
-        hide_new_lead_btn = any(k in display_name for k in blocked_new_lead_users)
-        self.uic.but_co_hoi_moi.setVisible(not hide_new_lead_btn)
-        self.uic.but_co_hoi_moi.setEnabled(not hide_new_lead_btn)
+        # Nút "Cơ hội mới" — TẮT CHO MỌI NGƯỜI từ 11/8/2026 (anh Tùng quyết, việc B10).
+        # Luật giới hạn theo tên cũ ({'Vương','Huệ','Đức'}) không còn ý nghĩa, đã bỏ.
+        self._tat_nut_co_hoi_moi()
 
         result = misc.sql_one("SELECT * from user where phone_number = %s", (self.user_phone,))
         self.user_power = int(result[3])
@@ -341,7 +346,8 @@ class MainWindow(QMainWindow):
 
         self.uic.but_logout.clicked.connect(self.logout)
         self.uic.but_mydesk.clicked.connect(lambda: self.show_lead(self.user))
-        self.uic.but_co_hoi_moi.clicked.connect(lambda: self.show_co_hoi_moi())
+        # ⛔ KHÔNG nối but_co_hoi_moi vào show_co_hoi_moi() nữa — xem _tat_nut_co_hoi_moi().
+        self._tat_nut_co_hoi_moi()
 
         # Quản lý bảng giá
         self.win_banggia = QMainWindow()
@@ -426,7 +432,6 @@ class MainWindow(QMainWindow):
             ]
             for q in normalize_sql:
                 misc.sql_commit(q)
-            misc.refresh_busy_for_all_users_with_open_leads()
 
             # 2) Auto-release lead Anna đã giao việc quá 1 giờ (nếu chưa có BG/ĐH)
             to_release = misc.sql_all(
@@ -475,6 +480,13 @@ class MainWindow(QMainWindow):
                 f"WHERE {base_filter} AND TIMESTAMPDIFF(HOUR, l.time_create, NOW()) >= 4 AND TIMESTAMPDIFF(DAY, l.time_create, NOW()) < 3 "
                 f"AND NOT EXISTS (SELECT 1 FROM ds_bao_gia q WHERE q.lead_id = l.lead_id)"
             )
+
+            # Tính lại cờ bận SAU CÙNG, khi status đã ổn định.
+            # Trước 11/8/2026 lệnh này nằm ở cuối bước 1, tức là chạy TRƯỚC bước 2
+            # (thu hồi lead Anna) và bước 3 (tự gắn trạng thái theo tuổi). Cờ vì thế
+            # phản ánh trạng thái cũ, và hàm này có throttle 5 phút nên sai lệch tồn
+            # tại ít nhất một chu kỳ. (Bài học 11/8/2026)
+            misc.refresh_busy_for_all_users_with_open_leads()
 
             self._last_lead_status_refresh_ms = now_ms
         except Exception as e:
@@ -652,11 +664,13 @@ class MainWindow(QMainWindow):
         for row in range(0, len(result)):
             self.uic.tableWidget.takeItem(row, 3)
             if self.user == result[row][11] or int(self.user_power) > 40:
+                # Truyền thẳng lead_id của đúng dòng đang dựng nút, không dựa vào
+                # currentRow() — bấm nút trong ô bảng không làm đổi dòng đang chọn
+                # nên currentRow() hay trỏ nhầm (hoặc -1 = dòng cuối). (B6, 11/8/2026)
                 but1 = QPushButton('Nhận việc')
-                but1.clicked.connect(lambda: self.nhan_viec(result))
+                but1.clicked.connect(lambda _, lid=result[row][0]: self.nhan_viec_by_id(lid))
                 but2 = QPushButton('Cập nhật')
-                but2.clicked.connect(lambda: LeadHandle.update_job(self, self.uic.tableWidget.item(
-                    self.uic.tableWidget.currentRow(), 0).text()))
+                but2.clicked.connect(lambda _, lid=result[row][0]: LeadHandle.update_job(self, str(lid)))
 
                 if result[row][10] == 'Mới':
                     self.uic.tableWidget.setCellWidget(row, 3, but1)
@@ -845,11 +859,40 @@ class MainWindow(QMainWindow):
             self.uic.label_noti.setStyleSheet("color: red")
             self.uic.label_noti.setText(f"Lỗi xử lý phiếu trả hàng: {e}")
 
+    def _tat_nut_co_hoi_moi(self):
+        """
+        Tắt nút "Cơ hội MỚI" — 11/8/2026, anh Tùng quyết bỏ chức năng này (việc B10).
+
+        Lý do bỏ: `show_co_hoi_moi()` query `WHERE status='Mới'` mà **không lọc theo
+        phu_trach**, rồi gắn nút "Nhận việc" lên mọi dòng cho mọi người, không kiểm
+        quyền. Nghĩa là ai cũng thấy và cướp được lead đã giao cho người khác — trong
+        khi màn hình lọc theo trạng thái (`show_lead_with_status`) lại có kiểm
+        `self.user == phu_trach or power > 40`. Hai màn hình, cùng một nút, hai luật.
+
+        Nút được BẬT LẠI ở nhiều chỗ (`post_login_setup`, `_set_main_loading_lock`),
+        nên phải tắt tập trung ở một hàm và gọi lại sau mỗi chỗ đó — tắt một chỗ là
+        chỗ khác bật lên lại.
+
+        Giữ nút ở dạng xám + tooltip thay vì ẩn hẳn, để nhân viên biết là chủ ý chứ
+        không tưởng app hỏng. Hàm `show_co_hoi_moi()` vẫn còn nhưng KHÔNG còn đường
+        nào gọi tới; xoá hẳn nó + nút trong `UI/gui.ui` là việc `B11`.
+        """
+        try:
+            self.uic.but_co_hoi_moi.setEnabled(False)
+            self.uic.but_co_hoi_moi.setToolTip(
+                'Chức năng "Cơ hội mới" đã ngưng từ 11/8/2026.\n'
+                'Cơ hội được giao trực tiếp cho người phụ trách — xem ở "Bàn của tôi".'
+            )
+        except Exception:
+            pass
+
     def _set_main_loading_lock(self, locked: bool, text: str = ""):
         try:
             self.uic.tableWidget.setEnabled(not locked)
+            # ⛔ 'but_co_hoi_moi' đã bị gỡ khỏi danh sách này (11/8/2026, B10) —
+            # để trong đây thì mỗi lần load xong nó lại được bật lên.
             for n in [
-                'but_mydesk', 'but_co_hoi_moi', 'but_tao_co_hoi', 'but_crm',
+                'but_mydesk', 'but_tao_co_hoi', 'but_crm',
                 'but_sua_bang_gia', 'but_quan_ly_kho', 'but_baocao', 'tex_search'
             ]:
                 if hasattr(self.uic, n):
@@ -1013,8 +1056,9 @@ class MainWindow(QMainWindow):
                         self.uic.tableWidget.setRowHeight(row, 65)
 
                 for row in range(0, len(result)):
+                    # Truyền thẳng lead_id, không dựa vào currentRow(). (B6, 11/8/2026)
                     but1 = QPushButton('Nhận việc')
-                    but1.clicked.connect(lambda: self.nhan_viec(result))
+                    but1.clicked.connect(lambda _, lid=result[row][0]: self.nhan_viec_by_id(lid))
 
                     self.uic.tableWidget.setCellWidget(row, 3, but1)
                 self.uic.tableWidget.repaint()
@@ -1026,34 +1070,71 @@ class MainWindow(QMainWindow):
             print("❌ Lỗi khi show cơ hội mới!!!")
             return
 
-    def nhan_viec(self, result):
-        lead_id = result[self.uic.tableWidget.currentRow()][0]
+    def nhan_viec_by_id(self, lead_id):
+        """
+        Nhận xử lý cơ hội theo lead_id truyền thẳng vào.
 
-        code = "SELECT check_busy FROM user WHERE full_name = %s"
-        kq = misc.sql_one(code, (self.user,))
+        11/8/2026 (việc B6) — trước đây tồn tại hai đường, cả hai đều hỏng:
 
-        if kq[0] == 0:
-            old = misc.sql_one("SELECT phu_trach, status FROM sale_lead WHERE lead_id = %s", (lead_id,))
-            old_owner = old[0] if old else ''
-            old_status = old[1] if old else ''
+        · `show_lead_with_status` nối nút "Nhận việc" vào `self.nhan_viec_by_id(lid)`
+          nhưng **hàm này chưa từng được định nghĩa** ⇒ bấm nút là `AttributeError`.
+        · `nhan_viec(result)` lấy lead bằng `result[tableWidget.currentRow()][0]`.
+          Bấm QPushButton nằm trong ô bảng **không làm đổi `currentRow()`**, nên
+          currentRow() có thể còn trỏ vào dòng chọn trước đó, hoặc `-1` — mà Python
+          hiểu `-1` là phần tử cuối ⇒ **nhận nhầm cơ hội khác, không báo lỗi gì**.
+          Ở `show_lead_with_status` còn lệch thêm vì bảng chèn các dòng "yêu cầu
+          trả hàng" lên đầu, khiến chỉ số dòng không còn khớp với `result`.
 
-            misc.sql_commit("UPDATE sale_lead SET phu_trach = %s, status = 'Đã nhận việc', time_nhan_viec = NOW() "
-                          "WHERE lead_id = %s", (self.user, lead_id,))
+        Nay chỉ còn một đường duy nhất, mọi nút đều truyền thẳng `lead_id`.
+        """
+        try:
+            lead_id = int(lead_id)
+        except (TypeError, ValueError):
+            self.uic.label_noti.setStyleSheet("color: red")
+            self.uic.label_noti.setText('❌ Không xác định được cơ hội cần nhận.')
+            return
 
-            misc.refresh_user_busy(old_owner)
-            misc.refresh_user_busy(self.user)
+        # 11/8/2026 — ĐÃ BỎ luật "một nhân viên một cơ hội" (anh Tùng quyết, việc B7).
+        #
+        # Trước đây chỗ này chặn nhận cơ hội mới khi user.check_busy = 1, kèm câu
+        # báo "vẫn còn cơ hội cũ chưa xử lý". Chính luật đó sinh ra toàn bộ nhóm lỗi
+        # B#: lead đã báo giá mà khách không chốt vẫn bị tính là việc chưa xong, rồi
+        # rule tuổi đời ở _normalize_and_refresh_lead_statuses đẩy nó sang trạng thái
+        # không có đường thoát ⇒ nhân viên bị khoá vĩnh viễn. Đo 11/8/2026: Hoàng Thị
+        # Thanh Nga tích 316 lead trong 13 tháng, 308 trong đó đã báo giá xong.
+        #
+        # ⚠️ KHÔNG dựng lại chốt chặn này. Muốn giới hạn khối lượng việc thì làm ở
+        # khâu CHIA việc (misc.pick_auto_assign_user), đừng chặn ở khâu NHẬN việc.
+        #
+        # Cờ check_busy vẫn được tính và ghi bình thường — giờ chỉ còn phục vụ
+        # pick_auto_assign_user(), nơi nó chỉ *ưu tiên* người rảnh chứ không chặn ai
+        # (hết người rảnh thì vẫn giao, xem AUTO_ASSIGN_FALLBACK_USERS).
+        old = misc.sql_one("SELECT phu_trach, status, ten_co_hoi FROM sale_lead WHERE lead_id = %s", (lead_id,))
+        if not old:
+            # Lead có thể vừa bị xoá, hoặc bảng đang hiển thị dữ liệu cũ.
+            self.uic.label_noti.setStyleSheet("color: red")
+            self.uic.label_noti.setText(f'❌ Không tìm thấy cơ hội số {lead_id}.')
+            return
 
-            misc.audit_log(self.user, 'UPDATE_OWNER', 'phu_trach', old_owner, self.user, lead_id)
-            misc.audit_log(self.user, 'UPDATE_STATUS', 'status', old_status, 'Đã nhận việc', lead_id)
+        old_owner = old[0] or ''
+        old_status = old[1] or ''
+        ten_co_hoi = old[2] or ''
 
-            self.show_lead(self.user)
+        misc.sql_commit("UPDATE sale_lead SET phu_trach = %s, status = 'Đã nhận việc', time_nhan_viec = NOW() "
+                      "WHERE lead_id = %s", (self.user, lead_id,))
 
-            kq = misc.sql_one("SELECT ten_co_hoi FROM sale_lead WHERE lead_id = %s", (lead_id,))[0]
+        misc.refresh_user_busy(old_owner)
+        misc.refresh_user_busy(self.user)
 
-            misc.send_to_telegram(self.user + ' nhận xử lý cơ hội: ' + kq + ' số ' + str(lead_id) + '.')
+        misc.audit_log(self.user, 'UPDATE_OWNER', 'phu_trach', old_owner, self.user, lead_id)
+        misc.audit_log(self.user, 'UPDATE_STATUS', 'status', old_status, 'Đã nhận việc', lead_id)
 
-        else:
-            self.uic.label_noti.setText('❌ Không được nhận cơ hội mới do vẫn còn cơ hội cũ chưa xử lý')
+        self.show_lead(self.user)
+
+        # Lấy tên cơ hội từ lần SELECT phía trên thay vì query lại. Câu cũ dùng
+        # `misc.sql_one(...)[0]` — lead vừa bị xoá là ném TypeError giữa chừng,
+        # sau khi đã UPDATE xong. (11/8/2026)
+        misc.send_to_telegram(self.user + ' nhận xử lý cơ hội: ' + ten_co_hoi + ' số ' + str(lead_id) + '.')
 
     def thong_ke(self):
         try:
@@ -1080,6 +1161,13 @@ if __name__ == "__main__":
     # là NameError ngay tại MainWindow.__init__.
     app = QApplication(sys.argv)
     load_global_stylesheet(app)
+
+    # Thiếu thông tin kết nối CSDL thì báo tử tế rồi thoát, thay vì để app
+    # chết kèm traceback Python mà nhân viên không hiểu gì (6/8/2026, việc S3).
+    _loi_cfg = misc.kiem_tra_config()
+    if _loi_cfg:
+        QMessageBox.critical(None, 'FSales — thiếu cấu hình kết nối', _loi_cfg)
+        sys.exit(1)
 
     win = MainWindow()
     QTimer.singleShot(0, win.show)

@@ -67,6 +67,39 @@ from PyQt6.QtCore import QRunnable, QObject, pyqtSignal
 
 CREATE_NO_WINDOW = 0x08000000
 DETACHED_PROCESS = 0x00000008
+CREATE_NEW_CONSOLE = 0x00000010
+
+# 🔴 BÀI HỌC 11/8/2026 — VÌ SAO KHÔNG DÙNG DETACHED_PROCESS
+# Bản trước chạy .bat bằng DETACHED_PROCESS kèm chú thích "cố ý hiện console".
+# Sai cờ: DETACHED_PROCESS nghĩa là tiến trình KHÔNG CÓ CONSOLE NÀO CẢ.
+# Cờ để hiện cửa sổ console là CREATE_NEW_CONSOLE. Hậu quả dây chuyền đo được
+# trên máy anh Tùng ngày 11/8/2026 (bản 3.0.22 → 3.0.23):
+#   · `timeout /t 1` cần console ⇒ lỗi ngay ⇒ vòng chờ 60 nhịp xong trong vài ms
+#     thay vì 60 giây ⇒ chạy bộ cài khi Fsales.exe còn sống, file còn bị khoá.
+#   · Bộ cài PrivilegesRequired=admin cần hộp thoại UAC ⇒ không lên được.
+#   · Thất bại thì .bat rơi vào `pause` ⇒ treo vĩnh viễn KHÔNG CÓ CỬA SỔ NÀO
+#     để người dùng thấy. Triệu chứng: "bấm OK rồi không thấy gì xảy ra".
+# Dấu vết để lại: %TEMP%\fsales-update\capnhat.bat còn nguyên (dòng cuối của nó
+# là lệnh tự xoá) và KHÔNG có install.log (Inno tạo log ngay khi khởi động).
+
+# 🔴 PHẢI KHỚP với AppId trong release/FsalesInstaller-*.iss
+# (đã xác minh 6/8/2026: giống nhau qua cả 15 bản .iss từ 3.0.2 → 3.0.22).
+# Đổi AppId trong .iss mà quên đổi ở đây ⇒ không đọc được thư mục cài
+# đã đăng ký, updater lui về thư mục đang chạy.
+APP_ID = "B210A5E9-4E37-4D65-A91F-56F3B05B7E09"
+APP_EXE_NAME = "Fsales.exe"
+
+# Mã thoát của Inno Setup — để báo lỗi cho ra hồn thay vì "mã lỗi 1223"
+MA_LOI_INNO = {
+    1: "Bộ cài bị lỗi khi khởi tạo.",
+    2: "Người dùng bấm Huỷ trước khi cài.",
+    3: "Lỗi nội bộ khi chuẩn bị cài.",
+    5: "Người dùng bấm Huỷ giữa chừng.",
+    6: "Tiến trình cài bị dừng bằng mã lệnh.",
+    8: "Cần khởi động lại máy để cài tiếp.",
+    1223: "Bạn đã từ chối cấp quyền Administrator (cửa sổ UAC). "
+          "Bộ cài FSales bắt buộc phải chạy với quyền quản trị.",
+}
 
 # Cờ Inno Setup:
 #   /SILENT            chỉ hiện thanh tiến trình, không bắt bấm Next
@@ -268,28 +301,129 @@ class AutoUpdater:
 
     # ---------------- cài ----------------
 
-    def _thu_muc_cai(self):
-        """
-        Thư mục đang chạy app — truyền cho /DIR để bộ cài ĐÈ LÊN ĐÚNG CHỖ,
-        thay vì đẻ ra bản thứ hai ở thư mục mặc định.
-        """
+    def _thu_muc_dang_chay(self):
         if getattr(sys, 'frozen', False):
             return os.path.dirname(os.path.abspath(sys.executable))
         return self.app_dir
 
+    def _thu_muc_da_dang_ky(self):
+        """
+        Đọc thư mục cài ĐÃ ĐĂNG KÝ của Inno Setup từ Registry.
+
+        VÌ SAO KHÔNG DÙNG THƯ MỤC ĐANG CHẠY:
+        Trên máy nhân viên từng tồn tại các bản sao lạc (shortcut cũ
+        `Fsales_2024`, `Fire_Smart` — xem ghi chú phát hành bản 3.0.10).
+        Nếu người dùng lỡ mở một bản sao lạc rồi ta cài đè vào chính chỗ
+        đó, hai bản sẽ mãi mãi tồn tại song song và bản "chính" không bao
+        giờ được cập nhật.
+
+        Registry gắn với AppId nên nó là chỗ DUY NHẤT biết đâu là bản cài
+        chính thức. Cài vào đó, rồi mở lại đúng nó ⇒ mọi máy hội tụ về
+        một bản, dù người dùng bấm vào shortcut nào.
+
+        Không đọc được thì lui về thư mục đang chạy (hành vi an toàn cũ).
+        """
+        if os.name != 'nt':
+            return None
+        try:
+            import winreg
+        except ImportError:
+            return None
+
+        khoa = (r"SOFTWARE\Microsoft\Windows\CurrentVersion"
+                r"\Uninstall\{" + APP_ID + r"}_is1")
+
+        for goc, co in ((winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_64KEY),
+                        (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_32KEY),
+                        (winreg.HKEY_CURRENT_USER, 0)):
+            try:
+                with winreg.OpenKey(goc, khoa, 0, winreg.KEY_READ | co) as k:
+                    duong_dan, _ = winreg.QueryValueEx(k, "InstallLocation")
+                    duong_dan = (duong_dan or '').strip().rstrip('\\')
+                    if duong_dan and os.path.isdir(duong_dan):
+                        return duong_dan
+            except OSError:
+                continue
+        return None
+
+    def _thu_muc_cai(self):
+        """Nơi sẽ cài: ưu tiên bản đã đăng ký, không có thì thư mục đang chạy."""
+        return self._thu_muc_da_dang_ky() or self._thu_muc_dang_chay()
+
     def _duong_dan_exe(self):
-        if getattr(sys, 'frozen', False):
-            return os.path.abspath(sys.executable)
-        return ''
+        """
+        Đường dẫn exe sẽ MỞ LẠI sau khi cài — phải nằm trong thư mục vừa
+        cài, KHÔNG phải sys.executable. Mở lại sys.executable nghĩa là mở
+        lại đúng bản sao lạc vừa bị bỏ qua ⇒ "cài xong vẫn chạy bản cũ".
+        """
+        thu_muc = self._thu_muc_cai()
+        if not thu_muc:
+            return ''
+        ten = (os.path.basename(sys.executable)
+               if getattr(sys, 'frozen', False) else APP_EXE_NAME)
+        return os.path.join(thu_muc, ten)
+
+    @staticmethod
+    def _ps_chuoi(s: str) -> str:
+        """Bọc chuỗi vào dấu nháy đơn kiểu PowerShell (nháy đơn nhân đôi để thoát)."""
+        return "'" + str(s).replace("'", "''") + "'"
+
+    def _viet_ps1(self, installer_path: str, thu_muc_cai: str, log: str) -> str:
+        """
+        Sinh file PowerShell chạy bộ cài VỚI QUYỀN ADMIN.
+
+        VÌ SAO TÁCH RA FILE .ps1 RIÊNG THAY VÌ NHÉT VÀO .bat:
+        Bộ cài có `PrivilegesRequired=admin`, phải xin UAC. Cách chắc chắn hiện
+        được hộp thoại UAC là `Start-Process -Verb RunAs`. Nhưng nhét cả câu
+        lệnh PowerShell vào một dòng `.bat` thì dấu nháy kép bị cmd.exe nuốt
+        trước khi tới PowerShell — nguồn lỗi kinh điển. Ghi ra file .ps1 rồi
+        gọi bằng `-File` là hết sạch chuyện thoát ký tự.
+
+        Người dùng bấm "No" ở UAC ⇒ Start-Process ném ngoại lệ ⇒ trả 1223,
+        khớp với bảng MA_LOI_INNO để .bat báo cho ra hồn.
+
+        ⚠️ .bat gọi file này KHÔNG chạy với quyền admin. Cố ý: chỉ mỗi bộ cài
+        được nâng quyền, còn lệnh mở lại app ở bước sau vẫn chạy quyền thường.
+        Nếu nâng quyền cả .bat thì Fsales.exe mở lại sẽ chạy dưới quyền
+        Administrator suốt phiên đó — không cần thiết và dễ sinh chuyện lạ.
+        """
+        doi_so = list(INNO_FLAGS) + [f'/DIR={thu_muc_cai}', f'/LOG={log}']
+        ds = ", ".join(self._ps_chuoi(x) for x in doi_so)
+
+        ps = [
+            "$ErrorActionPreference = 'Stop'",
+            f"$boCai = {self._ps_chuoi(installer_path)}",
+            f"$doiSo = @({ds})",
+            "try {",
+            "    $p = Start-Process -FilePath $boCai -ArgumentList $doiSo "
+            "-Verb RunAs -Wait -PassThru",
+            "    exit $p.ExitCode",
+            "} catch {",
+            "    Write-Host $_.Exception.Message",
+            "    exit 1223",
+            "}",
+        ]
+        ps1_path = os.path.join(
+            tempfile.gettempdir(), 'fsales-update', 'chaycai.ps1')
+        with open(ps1_path, 'w', encoding='utf-8') as f:
+            f.write("\r\n".join(ps))
+        return ps1_path
 
     def launch_installer(self, installer_path: str):
         """
-        Sinh .bat trung gian rồi chạy tách rời.
+        Sinh .bat trung gian rồi chạy trong CỬA SỔ CONSOLE RIÊNG.
 
         .bat làm đúng thứ tự sống còn:
-          1. chờ tiến trình app (theo PID) chết hẳn  ← bản cũ THIẾU bước này
-          2. chạy bộ cài im lặng, đè đúng thư mục
-          3. mở lại app
+          1. chờ tiến trình app (theo PID) chết hẳn  ← bản 3.0.22 hỏng ở đây
+          2. gọi .ps1 chạy bộ cài với quyền admin (UAC), chờ cài xong
+          3. mở lại app từ đúng thư mục vừa cài
+
+        🔴 KHÔNG dùng `timeout` trong vòng chờ. `timeout.exe` cần handle input
+        của console; hễ console thiếu hoặc stdin bị chuyển hướng là nó chết ngay
+        ("ERROR: Input redirection is not supported") và vòng chờ 60 giây co lại
+        còn vài mili giây ⇒ chạy bộ cài khi Fsales.exe còn đang khoá file.
+        `ping -n 2 127.0.0.1` đợi ~1 giây, có trên mọi máy Windows, không cần
+        console. (Bài học 11/8/2026.)
         """
         if not installer_path or not os.path.exists(installer_path):
             raise FileNotFoundError(f'Không tìm thấy bộ cài: {installer_path}')
@@ -299,13 +433,20 @@ class AutoUpdater:
         pid = os.getpid()
         log = os.path.join(tempfile.gettempdir(), 'fsales-update', 'install.log')
 
-        co = " ".join(INNO_FLAGS)
+        ps1 = self._viet_ps1(installer_path, thu_muc_cai, log)
         bat_path = os.path.join(tempfile.gettempdir(), 'fsales-update', 'capnhat.bat')
 
         dong = [
             '@echo off',
-            'chcp 65001 >nul',
-            'echo Dang cap nhat FSales, vui long doi...',
+            'title Cap nhat FSales',
+            'echo.',
+            'echo   ===================================',
+            'echo   DANG CAP NHAT FSALES - VUI LONG DOI',
+            'echo   ===================================',
+            'echo.',
+            'echo   Se hien cua so xin quyen Administrator.',
+            'echo   Hay bam "Yes" thi ban moi duoc cai.',
+            'echo.',
             '',
             f'rem 1) Cho tien trinh FSales (PID {pid}) thoat han',
             'set /a _dem=0',
@@ -314,33 +455,54 @@ class AutoUpdater:
             'if errorlevel 1 goto thoat_xong',
             'set /a _dem+=1',
             'if %_dem% GEQ 60 goto thoat_xong',
-            'timeout /t 1 /nobreak >nul',
+            'ping -n 2 127.0.0.1 >nul',
             'goto cho',
             ':thoat_xong',
             '',
-            'rem 2) Chay bo cai im lang, DE LEN DUNG thu muc dang chay',
-            f'"{installer_path}" {co} /DIR="{thu_muc_cai}" /LOG="{log}"',
+            'echo   Dang cai dat...',
+            'rem 2) Chay bo cai voi quyen admin, cai vao THU MUC DA DANG KY',
+            f'powershell -NoProfile -ExecutionPolicy Bypass -File "{ps1}"',
             'set _kq=%ERRORLEVEL%',
             '',
-            'rem 3) Mo lai app',
+            'rem 3) Mo lai app tu chinh thu muc vua cai',
+            'if "%_kq%"=="0" goto ok',
+            '',
+            'echo.',
+            'echo   *** CAP NHAT THAT BAI - ma loi %_kq% ***',
+            'if "%_kq%"=="1223" echo   Ban da bam "No" o cua so quyen Administrator.',
+            'if "%_kq%"=="5" echo   Ban da bam Huy giua chung.',
+            f'echo   Nhat ky chi tiet: {log}',
+            'echo.',
+            'echo   Phan mem cu van dung duoc binh thuong.',
+            'pause',
+            'goto het',
+            '',
+            ':ok',
         ]
         if exe:
             dong += [
-                'if "%_kq%"=="0" (',
+                f'if exist "{exe}" (',
                 f'  start "" "{exe}"',
                 ') else (',
-                '  echo Cai dat that bai, ma loi %_kq%. Xem log: ' + log,
+                f'  echo   Khong tim thay "{exe}" sau khi cai.',
                 '  pause',
                 ')',
             ]
-        dong += ['', 'del "%~f0" >nul 2>&1']
+        dong += ['', ':het', 'del "%~f0" >nul 2>&1']
 
-        with open(bat_path, 'w', encoding='utf-8') as f:
+        # Ghi ANSI-an-toan: .bat chi chua ky tu khong dau nen khong lo
+        # lech bang ma (cmd.exe mac dinh khong doc UTF-8).
+        with open(bat_path, 'w', encoding='ascii', errors='replace') as f:
             f.write("\r\n".join(dong))
 
+        # 🔴 CREATE_NEW_CONSOLE, KHONG PHAI DETACHED_PROCESS.
+        # Bo cai doi quyen Administrator nen Windows se hien hop thoai UAC;
+        # con .bat thi can console that de `ping`, `pause`, `echo` chay dung.
+        # DETACHED_PROCESS = khong co console nao ca ⇒ ca hai deu gay.
+        # (Xem khoi chu thich dau file — bai hoc 11/8/2026.)
         subprocess.Popen(
             ['cmd.exe', '/c', bat_path],
             close_fds=True,
-            creationflags=DETACHED_PROCESS | CREATE_NO_WINDOW,
+            creationflags=CREATE_NEW_CONSOLE,
         )
         return bat_path

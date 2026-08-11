@@ -11,4 +11,4 @@ QUY TRÌNH PHÁT HÀNH — xem docs/HUONG-DAN-PHAT-HANH.md
   3. Build .exe → build bộ cài → đẩy manifest.json lên repo Fsales_update
 """
 
-APP_VERSION = "3.0.22"
+APP_VERSION = "3.0.24"

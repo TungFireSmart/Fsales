@@ -1,0 +1,20 @@
+Dua toan bo cong viec 6/8 - 11/8/2026 vao lich su git
+
+Tu 6/8/2026 den nay chua commit lan nao. HEAD van track 11.175 file
+(gom .venv/ 10.901 file va AI/ 16 file) trong khi index chi con 140.
+Gop lam mot commit theo quyet dinh cua anh Tung ngay 11/8/2026.
+
+Gom cac mach viec:
+- Go toan bo AI tich hop trong app (AI/, openclaw_bridge_server.py,
+  llm_client.py, greeting_service.py). Anna la agent ngoai, khong dung toi.
+- Don rac: go .venv/ va __pycache__ khoi git, xoa _trash_*, Fonts/,
+  FsalesIOS/, hop_dong_out/. Git 11.175 -> 140 file duoc track.
+- Tach credential CSDL ra ngoai ma nguon (bon duong doc config trong misc.py).
+- Va co "ban" khoa nhan vien khong nhan duoc co hoi moi (B1, B2, B7):
+  refresh_user_busy chi dem lead chua co bao gia; bo han luat mot nhan vien
+  mot co hoi.
+- Va loi tu cap nhat: bo cai khong bao gio chay do dung DETACHED_PROCESS
+  thay vi CREATE_NEW_CONSOLE (U15). Bump 3.0.24 + FsalesInstaller-3.0.24.iss.
+- Sua .gitignore: chu thich cuoi dong lam hong dong !main.spec va _patch*.py.
+- Them CLAUDE.md, VIEC-CAN-LAM.md, NHAT-KY-FSALES.md, kiem_tra_truoc_phat_hanh.py,
+  chan_doan_check_busy.py va bo tai lieu trong docs/.

@@ -1,0 +1,17 @@
+{
+  "_huong_dan": [
+    "FILE MẪU — chép thành 'fsales_config.json' rồi điền mật khẩu thật.",
+    "fsales_config.json đã nằm trong .gitignore nên KHÔNG bao giờ lên GitHub.",
+    "⛔ Đừng gõ mật khẩu vào file MẪU này — nó bị git theo dõi.",
+    "Đặt file cạnh Fsales.exe, hoặc ở %APPDATA%\\FSales\\fsales_config.json.",
+    "Cách khác: đặt biến môi trường FSALES_DB_PASSWORD (ưu tiên cao hơn file)."
+  ],
+  "database": {
+    "host": "db.fs.rsa.vn",
+    "port": 3118,
+    "user": "firesmart",
+    "password": "DIEN_MAT_KHAU_VAO_DAY",
+    "database": "fs_mrb",
+    "connection_timeout": 5
+  }
+}
